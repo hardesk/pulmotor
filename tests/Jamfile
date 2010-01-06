@@ -1,0 +1,58 @@
+project tests
+	:	requirements
+		<include>./../..
+		<include>./../../stir
+		<include>$(boost-folder)
+#		<link>static
+	;
+
+exe	stream_test
+	:	stream_test.cpp
+		..//pulmotor
+	;
+
+exe	serialization_test
+	:	serialization_test.cpp
+		..//pulmotor
+	;
+
+exe	array_test
+	:	array_test.cpp
+		..//pulmotor
+	;
+
+#exe	dynamic_array_test
+#	:	dynamic_array_test.cpp
+#		..//pulmotor
+#	;
+	
+#exe font_data_test
+#	:	font_data_test.cpp
+#		..//pulmotor
+#	;
+	
+exe cyclic_test
+	:	cyclic_test.cpp
+		..//pulmotor
+	;
+
+exe compound_member_test
+	:	compound_member_test.cpp
+		..//pulmotor
+	;
+
+#exe external_test
+#	:	external_test.cpp
+#		..//pulmotor
+#	;
+
+exe	pointer_test
+	:	pointer_test.cpp
+		..//pulmotor
+	;
+
+install install_all_pulmotor_tests
+	:	stream_test serialization_test array_test cyclic_test pointer_test compound_member_test
+#		dynamic_array_test
+	:	<location>../_bin
+	;
