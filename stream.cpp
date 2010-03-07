@@ -6,7 +6,15 @@ namespace pulmotor
 const char basic_header::pulmotor_magic_text[basic_header::magic_chars]
 = { 'p', 'u', 'l', 'm', 'o', 't', 'o', 'r' };
 
-wchar_t const* get_error_id_text( error_id id );
+static char const* error_desc [k_error_id_count] =
+{
+		"ok", "eof", "read-fail", "write-fail", "out-of-space"
+};
+
+char const* get_error_id_text( error_id id )
+{
+	return error_desc [id];
+}
 
 basic_input_buffer::~basic_input_buffer()
 {}

@@ -23,10 +23,12 @@ namespace pulmotor
 		k_eof,
 		k_read_fail,
 		k_write_fail,
-		k_out_of_space
+		k_out_of_space,
+
+		k_error_id_count // number of error codes
 	};
 
-	PULMOTOR_ATTR_DLL wchar_t const* get_error_id_text( error_id id );
+	PULMOTOR_ATTR_DLL char const* get_error_id_text( error_id id );
 
 	// buffer -> [coder] -> formatter
 	// formatter <- [coder] <- buffer
