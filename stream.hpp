@@ -28,6 +28,19 @@ namespace pulmotor
 		k_error_id_count // number of error codes
 	};
 
+	inline bool is_le ()
+	{
+		unsigned value = 0x01;
+		return *(char const*)&value == 0x01;
+	}
+
+	inline bool is_be ()
+	{
+		unsigned value = 0x01;
+		return *(char const*)&value == 0x00;
+	}
+	
+
 	PULMOTOR_ATTR_DLL char const* get_error_id_text( error_id id );
 
 	// buffer -> [coder] -> formatter
@@ -50,23 +63,25 @@ namespace pulmotor
 	};
 	
 	//
+	template<class T>
 	class basic_version
 	{
-		static const unsigned MA_MASK = 0xffff0000;
-		static const unsigned MI_MASK = 0x0000ffff;
+		enum { bits = sizeof(T) << 3 };
+		static const unsigned MA_MASK = (1 << bits/2) - 1 << bits/2;
+		static const unsigned MI_MASK = (1 << bits/2) - 1;
 
 	public:
 		basic_version( unsigned v = 0x0 )
 		:	ver( v )
 		{}
 
-		unsigned major() const	{ return (ver & MA_MASK) >> 16; }
+		unsigned major() const	{ return (ver & MA_MASK) >> bits/2; }
 		unsigned minor() const	{ return ver & MI_MASK; }
 		bool operator==( basic_version const& v ) const	{	return ver == v.ver; }
 		bool operator<( basic_version const& v ) const	{	return ver < v.ver; }
 
 	private:
-        unsigned	ver;	
+        T	ver;
 	};
 
 	//
@@ -100,8 +115,7 @@ namespace pulmotor
 		string	name_;
 		FILE*	file_;
 	};
-	
-	
+
 
 /*	// 
 	class native_file_output : public basic_output_buffer
@@ -120,18 +134,17 @@ namespace pulmotor
 
 	class PULMOTOR_ATTR_DLL basic_header
 	{
-		static const int magic_chars = 0x08;
+		static const int magic_chars = 0x04;
 		static const char pulmotor_magic_text[magic_chars];
 
 	public:
-		static const size_t max_desc = 0x10;
-	
 		enum flags_enum
 		{
-			flag_plain	= 0x00,
-			flag_zlib	= 0x01,
-			flag_bzip2	= 0x02,
-			flag_lzma	= 0x04
+			flag_plain	= 0x0000,
+			flag_zlib	= 0x0001,
+			flag_bzip2	= 0x0002,
+			flag_lzma	= 0x0003,
+			flag_be		= 0x0100
 		};
 
 		static char const* get_pulmotor_magic()
@@ -139,33 +152,32 @@ namespace pulmotor
 
 		basic_header()
 		{
-			char const* m = "pulmotor";
-			std::copy( m, m + magic_chars, magic );
+			std::copy( pulmotor_magic_text, pulmotor_magic_text + magic_chars, magic );
 		}
 
-		basic_header( basic_version const& ver, char const* desc, int flags_ )
+		basic_header( basic_version<unsigned short> const& ver, int flags_ = flag_plain )
 			:	version( ver ), flags( flags_ )
 		{
-			char const* m = "pulmotor";
-			std::copy( m, m + magic_chars, magic );
-			size_t desclen = (std::min) (max_desc - 1, strlen(desc));
-			std::copy (desc, desc + desclen, description);
-			std::fill_n (description + desclen, max_desc - desclen, 0);
+			std::copy( pulmotor_magic_text, pulmotor_magic_text + magic_chars, magic );
+//			size_t desclen = (std::min) (max_desc - 1, strlen(desc));
+//			std::copy (desc, desc + desclen, description);
+//			std::fill_n (description + desclen, max_desc - desclen, 0);
 		}
 
-		char const* get_magic() const	{	return magic; }
-		int get_magic_length() const	{	return magic_chars; }
+		char const* get_magic() const	{ return magic; }
+		int get_magic_length() const	{ return magic_chars; }
 
-		basic_version const& get_version() const	{ return version; }
-		char const* get_description() const	{ return description; }
+		basic_version<unsigned short> const& get_version() const	{ return version; }
+		unsigned get_flags() const	{	return flags; }
+		basic_header& set_flag (unsigned flag) { flags |= flag; return *this; }
 
-		int get_flags() const	{	return flags; }
+		bool is_littleendian () const { return (flags & flag_be) == 0; }
+		bool is_bigendian () const { return (flags & flag_be) != 0; }
 
 	private:
-        char			magic[magic_chars];
-		basic_version	version;
-		int				flags;
-		char			description [max_desc];
+        char							magic [magic_chars];
+		basic_version<unsigned short>	version;
+		unsigned short					flags;
 	};
 
 	// global input/output factory functions

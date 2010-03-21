@@ -4,7 +4,7 @@ namespace pulmotor
 {
 
 const char basic_header::pulmotor_magic_text[basic_header::magic_chars]
-= { 'p', 'u', 'l', 'm', 'o', 't', 'o', 'r' };
+= { 'p', 'u', 'l', 'M' };
 
 static char const* error_desc [k_error_id_count] =
 {

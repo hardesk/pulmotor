@@ -18,7 +18,7 @@ struct C
 
 //namespace pulmotor {
 	template<class ArchiveT>
-	void blit (ArchiveT& ar, B& obj) {
+	void serialize (ArchiveT& ar, B& obj) {
 		using pulmotor::ptr;
 		ar
 //			| obj.i
@@ -27,7 +27,7 @@ struct C
 	}
 
 	template<class ArchiveT>
-	void blit (ArchiveT& ar, C& obj, unsigned version) {
+	void serialize (ArchiveT& ar, C& obj, unsigned version) {
 		using pulmotor::ptr;
 		ar
 //			| obj.i
@@ -52,7 +52,7 @@ struct uninitialized
 
 namespace pulmotor {
 	template<class ArchiveT>
-	inline void blit (ArchiveT& ar, std::string& s, unsigned version) {
+	inline void serialize (ArchiveT& ar, std::string& s, unsigned version) {
 		pulmotor::logf (" >>> blit std::string: '%s'\n", s.c_str ());
 	}
 
@@ -110,7 +110,7 @@ struct A
 	}
 	
 	template<class ArchiveT>
-	void blit (ArchiveT& ar, unsigned version) {
+	void serialize (ArchiveT& ar, unsigned version) {
 		using pulmotor::ptr;
 		using pulmotor::array;
 
@@ -146,8 +146,8 @@ int main ()
 	A a (s);
 	A* pa = &a;
 	(void)pa;
-	blit_object (bs, a);
-
+	
+	bs | a;
 	bs.dump_gathered ();
 
 	//
@@ -174,7 +174,7 @@ int main ()
 		char* data = ((char*)bsi + bsi->data_offset);
 		uintptr_t* fixups = (uintptr_t*)((char*)bsi + bsi->fixup_offset);
 
-		pulmotor::fixup_pointers (data, fixups, bsi->fixup_count);
+		pulmotor::util::fixup_pointers (data, fixups, bsi->fixup_count);
 
 		A* a1 = (A*)data;
 		(void)a1;

@@ -13,10 +13,13 @@ namespace pulmotor
 	typedef std::string string;
 #endif
 
+	typedef unsigned char u8;
+	typedef unsigned short u16;
+
 	class PULMOTOR_ATTR_DLL basic_input_buffer;
 	class PULMOTOR_ATTR_DLL basic_output_buffer;
 
-	class PULMOTOR_ATTR_DLL basic_version;
+	template<class T> class PULMOTOR_ATTR_DLL basic_version;
 	class PULMOTOR_ATTR_DLL basic_header;
 
 	std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_plain_input( pulmotor::string const& file_name );
