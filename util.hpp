@@ -19,7 +19,7 @@ struct swap_element_endian;
 template <>
 struct swap_element_endian<2>
 {
-	static void swap (char* p) {
+	static void swap (void* p) {
 		u16 a = *(u16*)p;
 		u32 b = ((a & 0x00ff) << 8) | ((a & 0xff00) >> 8);
 		*(u16*)p = b;
@@ -29,7 +29,7 @@ struct swap_element_endian<2>
 template <>
 struct swap_element_endian<4>
 {
-	static void swap (char* p) {
+	static void swap (void* p) {
 		u32 a = *(u32*)p;
 		u32 b = ((a & 0x000000ff) << 24) | ((a & 0x0000ff00) << 8) | ((a & 0x00ff0000) >> 8) | ((a & 0xff000000) >> 24);
 		*(u32*)p = b;
@@ -43,6 +43,12 @@ inline void swap_endian (void* arg, size_t count)
 	{
 		swap_element_endian<Size>::swap (p);
 	}
+}
+
+template<class T>
+inline void swap_variable (T& a)
+{
+	swap_element_endian<sizeof(T)>::swap (&a);
 }
 
 inline void swap_elements (void* ptr, size_t size, size_t count)

@@ -8,6 +8,7 @@
 
 #include "pulmotor_config.hpp"
 #include "stream_fwd.hpp"
+#include "util.hpp"
 
 #ifdef _WINNT
 #define pulmotor_native_path(x) L ## x
@@ -80,6 +81,11 @@ namespace pulmotor
 		bool operator==( basic_version const& v ) const	{	return ver == v.ver; }
 		bool operator<( basic_version const& v ) const	{	return ver < v.ver; }
 
+		void change_endianess ()
+		{
+			util::swap_variable (ver);
+		}
+
 	private:
         T	ver;
 	};
@@ -144,7 +150,8 @@ namespace pulmotor
 			flag_zlib	= 0x0001,
 			flag_bzip2	= 0x0002,
 			flag_lzma	= 0x0003,
-			flag_be		= 0x0100
+			flag_be		= 0x0100,
+			flag_checksum=0x0200,
 		};
 
 		static char const* get_pulmotor_magic()
@@ -173,6 +180,12 @@ namespace pulmotor
 
 		bool is_littleendian () const { return (flags & flag_be) == 0; }
 		bool is_bigendian () const { return (flags & flag_be) != 0; }
+
+		void change_endianess ()
+		{
+			version.change_endianess ();
+			util::swap_variable (flags);
+		}
 
 	private:
         char							magic [magic_chars];

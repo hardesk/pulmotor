@@ -32,8 +32,9 @@
 #include "stream.hpp"
 #include "util.hpp"
 
-#define PULMOTOR_ADD_MARKERS 1
-#define PULMOTOR_DEBUG_GATHER 1
+#define PULMOTOR_ADD_MARKERS 0
+#define PULMOTOR_DEBUG_GATHER 0
+#define PULMOTOR_DEBUG_WRITE 0
 
 #define	pulmotor_addressof(x) (&reinterpret_cast<unsigned char const&> (x))
 
@@ -86,7 +87,7 @@ inline void logf (char const* fmt, ...) {
 	vprintf (fmt, vl);
 }
 
-inline void logf_indent (int diff, char const* fmt, ...) {
+inline void logf_ident (int diff, char const* fmt, ...) {
 	static int ident_level = 0;
 	ident_level = std::max (0, ident_level + diff);
 	if (fmt != 0)
@@ -102,10 +103,18 @@ inline void logf_indent (int diff, char const* fmt, ...) {
 
 #if PULMOTOR_DEBUG_GATHER
 #define gather_logf(...) logf(__VA_ARGS__)
-#define gather_logf_indent(diff,...) logf_indent(diff,__VA_ARGS__)
+#define gather_logf_ident(diff,...) logf_ident(diff,__VA_ARGS__)
 #else
 #define gather_logf(...)
-#define gather_logf_indent(diff,...)
+#define gather_logf_ident(diff,...)
+#endif
+
+#if PULMOTOR_DEBUG_WRITE
+#define write_logf(...) logf(__VA_ARGS__)
+#define write_logf_ident(diff,...) logf_ident(diff,__VA_ARGS__)
+#else
+#define write_logf(...)
+#define write_logf_ident(diff,...)
 #endif
 
 template<class T> struct version {
@@ -177,14 +186,14 @@ struct nvp_t
 };
 
 template<class T>
-inline nvp_t operator> (name_holder n, T const& value)
+inline nvp_t operator/ (name_holder n, T const& value)
 {
 	return nvp_t (n, value);
 }*/
 
 //	ser	| name ("record")
-//		| n("mama") > mama_
-//		| n("pedro") > pedro_
+//		| n("mama") / mama_
+//		| n("pedro") / pedro_
 //		;
 
 template<class T>
@@ -274,6 +283,13 @@ struct blit_section_info
 	int 	data_offset;
 	int		fixup_offset, fixup_count;
 	int		reserved;
+
+	void change_endianess () {
+		util::swap_variable (data_offset);
+		util::swap_variable (fixup_offset);
+		util::swap_variable (fixup_count);
+
+	}
 };
 
 template<class T>
@@ -308,7 +324,7 @@ struct blit_section
 	struct member_info
 	{
 		member_info (class_info const* ci, size_t offset, size_t size, size_t count, category cat)
-			:	offset_(offset), count_ (count), size_ (size), category_ (cat)
+			:	ci_ (ci), offset_(offset), count_ (count), size_ (size), category_ (cat)
 	   	{}
 	   	
 	   	bool operator== (member_info const& a) const {
@@ -369,10 +385,10 @@ struct blit_section
 			member_info mi (ci, offset, size, count, cat);
 			member_container::iterator it = std::find (members_.begin (), members_.end (), mi);
 			if (it == members_.end ()) {
-				gather_logf_indent (1, " + add member: offset: %lu, size: %lu, count: %lu, cat: %s (%s)\n", offset, size, count, to_string(cat), ci->get_name ());
+				gather_logf_ident (1, " + add member: offset: %lu, size: %lu, count: %lu, cat: %s (%s)\n", offset, size, count, to_string(cat), ci ? ci->get_name () : "<null>");
 				members_.push_back (mi);
 			}
-			gather_logf_indent (-1, 0);
+			gather_logf_ident (-1, 0);
 		}
 
 		void dump_members (std::string const& prefix) const
@@ -385,45 +401,13 @@ struct blit_section
 			}
 		}
 
-		void change_endianess (void* ptr, size_t count)
-		{
-			while (count--)
-			{
-				for (size_t q=0; q<members_.size(); ++q)
-				{
-					member_info const& mi = members_[q];
-					char* p = (char*)ptr + mi.offset_;
-					switch (mi.size_)
-					{
-						default:
-						case 1:
-							break;
-
-						case 2:
-							util::swap_endian<2> (p, mi.count_);
-//							*(u16*)p = 0xAAAA;
-							break;
-						case 4:
-							util::swap_endian<4> (p, mi.count_);
-//							*(u32*)p = 0xBBBBBBBB;
-							break;
-	//					case 8:
-	//						util::swap_endian<8> (p, mi.count_);
-	//						break;
-					}
-				}
-
-				ptr = (void*)((uintptr_t)ptr + size_);
-			}
-		}
-		
 		member_iterator member_begin () const { return members_.begin (); }
 		member_iterator member_end () const { return members_.end (); }
 		
 		size_t get_size () const
 		{	return size_; }
 
-		size_t get_align () const
+		size_t get_alignment () const
 		{	return align_; }
 	};
 
@@ -455,6 +439,17 @@ struct blit_section
 		size_t count () const { return count_; }
 		size_t full_size () const { return count_ * size_; }
 		size_t size () const { return size_; }
+
+		// TODO: add per-object alignment
+		size_t alignment (size_t defaultAlign) const
+	   	{
+			if (ci_ == 0)
+				return object_alignment () == 0 ? defaultAlign : object_alignment ();
+			else
+				return object_alignment () == 0 ? ci_->get_alignment () : object_alignment ();
+	   	}
+
+		size_t object_alignment () const { return 0; }
 
 		// can be raw memory with pointers and therefore do not have class_info
 		class_info* get_class_info () const { return ci_; }
@@ -510,7 +505,7 @@ struct blit_section
 	typedef object_mindex_t::index<ptr_tag>::type	object_ptr_t;
 	
 	object_mindex_t		objects_;
-	object_container_t	layout_parents_, roots_;
+	object_container_t	roots_;
 	pi_container_t		type_parents_;
 	
 	typedef std::map<std::type_info const*, class_info*> class_info_container_t;
@@ -523,6 +518,10 @@ struct blit_section
 	{
 		for (class_info_container_t::iterator it = class_infos_.begin (), end = class_infos_.end (); it != end; ++it)
 			delete it->second;
+
+		typedef object_mindex_t::index<ptr_tag>::type cont_t;
+		for (cont_t::iterator it = objects_.get<ptr_tag>().begin (), end = objects_.get<ptr_tag>().end (); it != end; ++it)
+			delete *it;
 	}
 	
 	template<class T>
@@ -539,18 +538,6 @@ struct blit_section
 		}
 		return it->second;
 	}
-
-/*		else
-		{
-			if (cat == k_pointer)
-			{
-				object* o = new object (ci, ptr, size, count, k_pointer, false);
-				objects_.get<ptr_tag> ().insert (o);
-				if (layout_parents_.empty ())
-					roots_.push_back (o);
-			}
-		}
-*/
 
 	// pass a pointer to an object to check if that object is already registered. pointer passed can point to
 	// the middle of an object.
@@ -570,26 +557,12 @@ struct blit_section
 		current_name_ = name;
 	}
 
-	bool requires_instance (uintptr_t ptr)
-	{
-		if (type_parents_.empty ())
-			return true;
-
-		if (layout_parents_.empty ())
-			return true;
-
-		if (layout_parents_.back ()->belongs (ptr))
-			return false;
-
-		return true;
-	}
-
 	void begin_area (class_info* ci, uintptr_t ptr, size_t object_size, size_t count, category cat, bool isarray = false)
 	{
 		parent_names_.push_back (current_name_);
 		current_name_ = "";
 		
-		if (ci && !type_parents_.empty ())
+		if (!type_parents_.empty ())
 		{
 			// if instance parent is a composite, add this as a member
 			parent_info const& pi = type_parents_.back ();
@@ -609,7 +582,7 @@ struct blit_section
 		// if this is a root or an instance that does not belong to the parent, create 'object' for it.
 		if (type_parents_.empty () || !type_parents_.back ().belongs (ptr))
 		{
-			gather_logf_indent (0, "= create object: %lu x %lu\n", object_size, count);
+			gather_logf_ident (0, "= create object: %lu x %lu\n", object_size, count);
 			object* o = new object (ci, ptr, object_size, count, cat);
 			if (type_parents_.empty ())
 				roots_.push_back (o);
@@ -619,7 +592,7 @@ struct blit_section
 
 		type_parents_.push_back (parent_info(ci, ptr, object_size * count, cat, isarray));
 
-		gather_logf_indent (0, "> BEGIN object %p, %lu x %lu (%s)\n", ptr, object_size, count, to_string (cat));
+		gather_logf_ident (0, "> BEGIN object %p, %lu x %lu (%s)\n", ptr, object_size, count, to_string (cat));
 	}
 
 	void end_area (class_info* ci, uintptr_t ptr)
@@ -630,7 +603,7 @@ struct blit_section
 		if (ci && !ci->is_complete())
 			ci->set_complete (true);
 	
-		gather_logf_indent (0, "> END object %p\n", ptr);
+		gather_logf_ident (0, "> END object %p\n", ptr);
 	}
 
 	void dump_gathered ()
@@ -640,7 +613,7 @@ struct blit_section
 		{
 			class_info const& ci = *it->second;
 			logf ("  class (%p): '%s', %lu members, size: %d (%d)\n", it->second,
-				shorten_name(ci.get_name ()).c_str(), ci.member_count (), ci.get_size (), ci.get_align());
+				shorten_name(ci.get_name ()).c_str(), ci.member_count (), ci.get_size (), ci.get_alignment());
 			ci.dump_members ("    ");
 		}
 
@@ -667,11 +640,62 @@ struct blit_section
 
 	typedef std::map<object*, size_t> file_offsets_t;
 
-	void write_out (std::vector<unsigned char>& output_buffer, bool change_endianess)
+	static size_t align_on (size_t addr, size_t align)
+	{
+		return (addr - 1 | align - 1) + 1;
+	}
+
+	static bool is_aligned (size_t addr, size_t align)
+	{
+		return (addr & align - 1) == 0;
+	}
+
+	size_t align_buffer (std::vector<unsigned char>& output_buffer, size_t offset, size_t mismatch)
+	{
+		size_t actual_data = output_buffer.size () - mismatch;
+		int tofill = (int)offset - (int)actual_data;
+		if (tofill < 0)
+		{
+			// TODO: fatal error, pointers point wrong
+			return 0;
+		}
+
+		char buf [64];
+		memset (buf, 0, sizeof(buf));
+		for(int left = tofill; left > 0; )
+		{
+			size_t write = (std::min) (sizeof buf, (size_t)left);
+			append (output_buffer, buf, write);
+			left -= write;
+		}
+
+		return tofill;
+	}
+
+	struct write_state
+	{
+		typedef std::vector<u8> buffer_t;
+
+		buffer_t&		buffer;
+		ptr_refs_t&		ptr_refs;
+		file_offsets_t&	file_offsets; // offsets of the objects in file
+		size_t			default_align;
+		size_t			waste;
+		bool			change_endianess;
+		
+		write_state (buffer_t& obuf, ptr_refs_t& pr, file_offsets_t& fo, bool change_endian_, size_t default_align_)
+		:	buffer (obuf), ptr_refs (pr), file_offsets (fo), default_align (default_align_), waste (0), change_endianess (change_endian_)
+		{
+		}
+	};
+		
+	void write_out (std::vector<unsigned char>& output_buffer, bool change_endianess, size_t section_align = 4)
 	{
 //		std::sort (objects_.begin (), objects_.end (), objectptr_less_addr());
 
+		size_t waste = 0;
 		size_t initialBufferSize = output_buffer.size ();
+		(void)initialBufferSize;
 
 		// offsets to 'pointers' in the written stream
 		ptr_refs_t pr;
@@ -680,9 +704,11 @@ struct blit_section
 		file_offsets_t fo;
 
 		std::vector<unsigned char> data_buffer;
+		write_state ws (data_buffer, pr, fo, change_endianess, 4);
+
 		for (object_container_t::iterator it = roots_.begin (), end = roots_.end (); it != end; ++it)
 		{
-			write_out (*it, data_buffer, pr, fo, change_endianess);
+			write_out (*it, ws);
 		}
 
 		std::vector<uintptr_t> fixups;
@@ -691,50 +717,82 @@ struct blit_section
 		std::sort (fixups.begin (), fixups.end ());
 
 		for (size_t i=0; i<fixups.size (); ++i) {
-			logf ("fixup [%2d] at: 0x%08x\n", i, fixups[i]);
+			write_logf ("fixup [%2d] at: 0x%08x\n", i, fixups[i]);
 		}
 
 #if PULMOTOR_ADD_MARKERS
-		size_t const marker_size = 16;
-		char mark2 [marker_size+1] = "-----fixups-----";
+		size_t const marker_size = 8;
+		char mark1 [marker_size+1] = "--data--";
+		char mark2 [marker_size+1] = "-fixups-";
 #endif
+		size_t f_data_offset, f_fixup_offset, f_begin;
 
-		unsigned flags = change_endianess ? pulmotor::basic_header::flag_be : 0; 
-		pulmotor::basic_header hdr (0x0001, pulmotor::basic_header::flag_plain | flags);
+		// declare a new scope as we might change endianess and objects will be unusable
+		{
+			unsigned flags = change_endianess ? pulmotor::basic_header::flag_be : 0; 
+			pulmotor::basic_header hdr (0x0001, pulmotor::basic_header::flag_plain | flags);
 
-		blit_section_info bsi;
-		bsi.reserved = 0xdddddddd;
-		bsi.data_offset = sizeof bsi;
-		bsi.fixup_offset= data_buffer.size () + bsi.data_offset
+			blit_section_info bsi;
+
+			f_data_offset = align_on (
 #if PULMOTOR_ADD_MARKERS
-			+ marker_size
+				marker_size +
 #endif
-			;
-		bsi.fixup_count	= fixups.size ();
+				sizeof bsi
+				, section_align);
 
-		append (output_buffer, &hdr, sizeof hdr);
-		append (output_buffer, &bsi, sizeof bsi);
-//		logf ("blit_section_info: %d bytes\n", sizeof bsi);
+			f_fixup_offset = align_on (
+#if PULMOTOR_ADD_MARKERS
+				marker_size +
+#endif
+				f_data_offset + data_buffer.size ()
+				, section_align);
+
+			bsi.reserved = 0xdddddddd;
+			bsi.data_offset = f_data_offset;
+			bsi.fixup_offset= f_fixup_offset;
+			bsi.fixup_count	= fixups.size ();
+
+			// writing the header in BE, always
+			if (pulmotor::is_le ())
+				hdr.change_endianess ();
+
+			if (change_endianess)
+				bsi.change_endianess ();
+
+			append (output_buffer, &hdr, sizeof hdr);
+
+			f_begin = output_buffer.size ();
+			append (output_buffer, &bsi, sizeof bsi);
+		}
 
 		if (!pr.empty())
 			util::set_offsets (&*data_buffer.begin (), &*pr.begin (), pr.size (), change_endianess);
-		logf ("data: %d bytes\n", data_buffer.size());
-
-		if (!data_buffer.empty())
-			append (output_buffer, &*data_buffer.begin (), data_buffer.size ());
 
 #if PULMOTOR_ADD_MARKERS
-		append (output_buffer, (unsigned char*)mark2, 16); 
+		append (output_buffer, (unsigned char*)mark1, marker_size);
 #endif
 
-		size_t fixups_offset = output_buffer.size ();
+		if (!data_buffer.empty())
+		{
+			waste += align_buffer (output_buffer, f_data_offset, f_begin);
+			append (output_buffer, &*data_buffer.begin (), data_buffer.size ());
+		}
+
 		if (!fixups.empty())
+		{
+#if PULMOTOR_ADD_MARKERS
+			append (output_buffer, (unsigned char*)mark2, marker_size);
+#endif
+
+			waste += align_buffer (output_buffer, f_fixup_offset, f_begin);
 			append (output_buffer, &*fixups.begin (), fixups.size () * sizeof (uintptr_t));
+		}
 
 		if (change_endianess)
-			util::swap_endian<sizeof(uintptr_t)> (&output_buffer [fixups_offset], fixups.size());
+			util::swap_endian<sizeof(uintptr_t)> (&output_buffer [f_fixup_offset + f_begin], fixups.size());
 			
-		logf ("total: %d bytes\n", output_buffer.size () - initialBufferSize);
+		write_logf ("total: %d bytes, waste: %d bytes\n", output_buffer.size () - initialBufferSize, waste);
 	}
 
 	object* find_object_at (uintptr_t ptr)
@@ -756,168 +814,141 @@ struct blit_section
 		return *(uintptr_t const*)p;
 	}
 
-	uintptr_t write_out (object* o, std::vector<unsigned char>& buffer, ptr_refs_t& pr, file_offsets_t& fo, bool change_endianess)
+	void process_members (class_info const* ci, size_t objectOffset, write_state& ws)
 	{
-		file_offsets_t::iterator it = fo.find (o);
-		if (it != fo.end ())
+		for (class_info::member_iterator it = ci->member_begin (), end = ci->member_end (); it != end; ++it)
+		{
+			// fetch pointer to this object data again, as buffer may be changed by child's write_out
+			write_logf_ident (0, "member(m)-%02d: %s, size: %d\n", std::distance (ci->member_begin (), it), to_string ((category)it->category_), it->size_);
+
+			member_info const& mi = *it;
+			for (size_t i=0; i<mi.count_; ++i)
+			{
+				// offset in the an already written buffer where the pointer lies
+				uintptr_t memberOffset = objectOffset + mi.offset_ + mi.size_ * i;
+
+				switch (mi.category_)
+				{
+					case k_other:
+					{
+						write_logf_ident (1, 0);
+						process_members (mi.ci_, memberOffset, ws);
+						write_logf_ident (-1, 0);
+						break;
+					}
+
+					case k_pointer:
+					{
+						uintptr_t ptr = fetch_pointer (ws.buffer, memberOffset);
+						write_logf_ident (0, "< POINTER: %p\n", ptr);
+
+						object* o = find_object_at (ptr);
+						if (!o)
+						{
+							write_logf_ident (0, "! object at address %p is not registered\n", o);
+							break;
+						}
+
+						int offset_in_referencee = o->local_offset (ptr);
+
+						write_logf_ident (1, 0);
+
+						// WRITE IT!
+						// offset of the object that 'this' reference is pointing to
+						uintptr_t referencee_offset = write_out (o, ws);
+						ws.ptr_refs.push_back (std::make_pair (memberOffset, referencee_offset + offset_in_referencee));
+						write_logf_ident (-1, 0);
+						break;
+					}
+
+					default:
+						if (ws.change_endianess)
+						{
+						//	o->get_class_info ()->dump_members ("  <SWAP> ");
+							size_t mofs = objectOffset + mi.offset_;
+							util::swap_elements (&ws.buffer [mofs], mi.size_, mi.count_);
+						}
+						break;
+				}
+			}
+		}
+	}
+
+	uintptr_t write_out (object* o, write_state& ws)
+	{
+		file_offsets_t::iterator it = ws.file_offsets.find (o);
+		if (it != ws.file_offsets.end ())
 			return it->second;
 
-		logf_indent (1, "obj: %p, full-size: %d, type: %s, cat: %s\n", o->data (), o->full_size(), o->get_class_name (), to_string(o->get_category()));
-
-		// todo: align buffer
+		write_logf_ident (1, "obj: %p, full-size: %d, type: %s, cat: %s\n", o->data (), o->full_size(), o->get_class_name (), to_string(o->get_category()));
 
 		// offset of this object in the output buffer (file)
-		uintptr_t thisOffset = buffer.size ();
-		fo.insert (std::make_pair (o, thisOffset));
+		uintptr_t unaligned_this_offset = ws.buffer.size ();
+
+		// align the buffer first on class alignment. use default-alignment if the class info is null.
+		size_t object_align = o->alignment (ws.default_align);
+		size_t this_offset = align_on (unaligned_this_offset, object_align);
+		
+		// remeber offset of the object in the buffer
+		ws.file_offsets.insert (std::make_pair (o, this_offset));
+
+		// we passs 0 as mismatch offset as ws.buffer *must* be empty on first write_out
+		ws.waste += align_buffer (ws.buffer, this_offset, 0);
+
+		assert (is_aligned (ws.buffer.size (), object_align));
 
 		// insert the data of the object(s) into the buffer
 		// we need to store the whole array as that has to be continuous
-		buffer.insert (buffer.end (), (char*)o->data (), (char*)o->data () + o->full_size ());
-//		if (change_endianess && o->get_category () != k_other)
-//		{
-//			logf_indent (0, "swap: 0x%08x, %lu x %lu\n", thisOffset, o->size (), o->count ());
-//			util::swap_elements (&buffer [thisOffset], o->size (), o->count ());
-//		}
-		
-		// pointer to the copied data of this object
-		//logf_indent (0, "--> file at %p (buffer-addr: %p)\n", thisOffset, odat);
-
-//		if (class_info* ci = o->get_class_info ())
-//			ci->dump_members ();
+		ws.buffer.insert (ws.buffer.end (), (char*)o->data (), (char*)o->data () + o->full_size ());
 
 		for (size_t ii=0; ii<o->count (); ++ii)
 		{
-			uintptr_t objectOffset = thisOffset + o->size () * ii; 
+			uintptr_t objectOffset = this_offset + o->size () * ii; 
 			switch (o->get_category ())
 			{
 				// if the object is a pointer, simply follow it
 				case k_pointer:
 				{
-					uintptr_t ptr = fetch_pointer (buffer, objectOffset);
-					logf_indent (0, "< POINTER: %p\n", ptr);
+					uintptr_t ptr = fetch_pointer (ws.buffer, objectOffset);
+					write_logf_ident (0, "< POINTER: %p\n", ptr);
 
 					object* o = find_object_at (ptr);
 					if (!o)
 					{
-						logf_indent (0, "! object encompassing address %p is not registered\n", ptr);
+						write_logf_ident (0, "! object encompassing address %p is not registered\n", ptr);
 						break;
 					}
 
-					uintptr_t written_offset = write_out (o, buffer, pr, fo, change_endianess);
-					pr.push_back (std::make_pair (objectOffset, written_offset));
+					write_logf_ident (1, 0);
+					uintptr_t written_offset = write_out (o, ws);
+					write_logf_ident (0, "< REF in file: *%p = %p -> %p\n", objectOffset, ptr, written_offset);
+					ws.ptr_refs.push_back (std::make_pair (objectOffset, written_offset));
+					write_logf_ident (-1, 0);
 					break;
 				}
 
 				// object is a compound, traverse members and follow pointers is such exist
 				case k_other:
 				{
-					class_info* ci = o->get_class_info ();
-					assert (ci != NULL);
-					for (class_info::member_iterator it = ci->member_begin (), end = ci->member_end (); it != end; ++it)
-					{
-						// fetch pointer to this object data again, as buffer may be changed by child's write_out
-						logf_indent (0, "member-%02d: %s, size: %d\n", std::distance (ci->member_begin (), it), to_string ((category)it->category_), it->size_); 
-
-						if (it->category_ != k_pointer)
-							continue;
-
-						// offset in the an already written buffer where the pointer lies
-						uintptr_t ptr_offset = objectOffset + it->offset_;
-						uintptr_t ptr = fetch_pointer (buffer, ptr_offset);
-
-						logf_indent (0, "< POINTER: %p\n", ptr);
-
-						object* o = find_object_at (ptr);
-						if (!o)
-						{
-							logf_indent (0, "! object encompassing address %p is not registered\n", o);
-							break;
-						}
-
-						int offset_in_referencee = o->local_offset (ptr);
-
-						// WRITE IT!
-						// offset of the object that 'this' reference is pointing to
-						uintptr_t referencee_offset = write_out (o, buffer, pr, fo, change_endianess);
-				
-						pr.push_back (std::make_pair (ptr_offset, referencee_offset + offset_in_referencee));
-					}
-
-					if (change_endianess)
-					{
-						o->get_class_info ()->dump_members ("  <SWAP> ");
-						ci->change_endianess (&*(buffer.begin () + objectOffset), 1);
-					}
-
+					write_logf_ident (1, 0);
+					process_members (o->get_class_info (), objectOffset, ws);
+					write_logf_ident (-1, 0);
 					break;
 				}
 
-				// otherwise do nothing
+				// otherwise just fix endianess if needed
 				default:
+				{
+					void* ptr = &ws.buffer [objectOffset + ii * o->size ()];
+					util::swap_elements (ptr, o->size (), 1);
 					break;
-
+				}
 			}
 		}
 
-/*
-
-		// walk through members of this class, patch the pointers (convert memory-address to file offset) and follow pointers
-		for (class_info::member_iterator it = ci->member_begin (), end = ci->member_end (); it != end; ++it)
-		{
-			// fetch pointer to this object data again, as buffer may be changed by child's write_out
-			odat = &*(buffer.begin () + thisOffset);
-			logf_indent (0, "member-%02d: %s, size: %d\n", std::distance (ci->member_begin (), it), to_string ((category)it->category_), it->size_); 
-
-			if (it->category_ != k_pointer)
-				continue;
-
-			// address of the pointer in the already copied data
-			uintptr_t const* ptrAddr = (uintptr_t const*) (odat + it->offset_);
-			uintptr_t ptr = *ptrAddr;
-
-			logf_indent (0, "ptr: %p @%p\n", ptr, ptrAddr);
-
-			// if pointer to object is null, do nothing
-			if (ptr == 0) {
-				logf_indent (0, "Pointer to object is null, skipping\n");
-				continue;
-			}
-			
-			// find an object this pointer is referencing to
-			object_ptr_t::iterator refIt = objects_.get<ptr_tag>().lower_bound (ptr, objectptr_less_addr ());
-			
-			if (refIt == objects_.get<ptr_tag>().end ())
-			{
-				// TODO: do something
-				assert ("object reference was not found in the database");
-			}
-			
-			// referenced object
-			object& refObj = **refIt;
-
-			// make sure that the pointer actually points to the object (or to null)
-			if (!refObj.belongs (ptr))
-			{
-				logf ("ERROR: object %p (ptr to it at %p). Registered data pointer: %p, fullsize: %d\n", ptr, ptrAddr, refObj.data (), refObj.full_size ());
-			}
-
-			assert ((refObj.full_size () == 0 || (refObj.belongs (ptr))) && "Memory range declared by the referenced object does not encompass the reference");
-			
-			// reference may point into the middle of the object, remeber the offset
-			int offsetInReferencee = refObj.local_offset (ptr);
-			
-			// pointer location in the stream (of already written object)
-			uintptr_t ptrLocationOffset = it->offset_ + thisOffset;
-			
-			// offset of the object that 'this' reference is pointing to
-			uintptr_t referenceeOffset = write_out (&refObj, buffer, pr, fo, change_endianess);
-			
-			pr.push_back (std::make_pair (ptrLocationOffset, referenceeOffset + offsetInReferencee));
-		}
-*/			
-		logf_indent (-1, 0);
+		write_logf_ident (-1, 0);
 		
-		return thisOffset;
+		return this_offset;
 	}
 };
 
@@ -942,7 +973,7 @@ inline void serialize (ArchiveT& ar, ObjectT& obj, unsigned long version)
 template<class ArchiveT, class ObjectT>
 inline void blit_impl (ArchiveT& ar, ObjectT& obj, unsigned version, compound_tag)
 {
-	gather_logf_indent (0, "> by-value compound, type: %s\n",
+	gather_logf_ident (0, "> by-value compound, type: %s\n",
 		shorten_name(typeid(obj).name()).c_str());
 
 	typedef typename clean<ObjectT>::type clean_t;
@@ -952,23 +983,23 @@ inline void blit_impl (ArchiveT& ar, ObjectT& obj, unsigned version, compound_ta
 	blit_section::class_info* ci = ar.template get_class_info<clean_t>();
 
 	ar.begin_area (ci, (uintptr_t)pulmotor_addressof (obj), sizeof(obj), 1, get_category<clean_t>::value);
-	gather_logf_indent (1, 0);
+	gather_logf_ident (1, 0);
 	serialize (ar, obj, version);
-	gather_logf_indent (-1, 0);
+	gather_logf_ident (-1, 0);
 	ar.end_area (ci, (uintptr_t)pulmotor_addressof (obj));
 }
 
 template<class ArchiveT, class ObjectT>
 inline void blit_impl (ArchiveT& ar, ObjectT& obj, unsigned version, primitive_tag)
 {
-	gather_logf_indent (0, "> primitive %s\n", shorten_name(typeid(obj).name()).c_str());
+	gather_logf_ident (0, "> primitive %s\n", shorten_name(typeid(obj).name()).c_str());
 	uintptr_t oa = (uintptr_t)pulmotor_addressof (obj); 
 	typedef typename clean<ObjectT>::type clean_t;
 	blit_section::class_info* ci = ar.template get_class_info<clean_t>();
 	assert (get_category<clean_t>::value == k_integral || get_category<clean_t>::value == k_floating_point);
 	ar.begin_area (ci, oa, sizeof(obj), 1, get_category<clean_t>::value);
 	ar.end_area (ci, oa);
-	gather_logf_indent (0, 0); 
+	gather_logf_ident (0, 0); 
 }
 
 // true, array of primitives
@@ -976,49 +1007,49 @@ template<class ArchiveT, class ObjectT>
 inline void blit_array_helper (ArchiveT& ar, ObjectT* obj, size_t array_size, unsigned version, boost::mpl::bool_<true>)
 {
 	// do nothing, or copy memory block
-	gather_logf_indent (1, "> blit-array  (x%d), type: %s\n",
+	gather_logf_ident (1, "> blit-array  (x%d), type: %s\n",
 		array_size, shorten_name(typeid(obj).name()).c_str());
 
 		ar.register_member ( (uintptr_t)pulmotor_addressof (obj), sizeof (*obj), array_size, get_category<ObjectT>::value);
 
-	gather_logf_indent (-1, 0);
+	gather_logf_ident (-1, 0);
 }
 
 // false, array of classes or pointers
 template<class ArchiveT, class ObjectT>
 inline void blit_array_helper (ArchiveT& ar, ObjectT* obj, size_t array_size, unsigned version, boost::mpl::bool_<false>)
 {
-	gather_logf_indent (1, "> blit-array (x%d), type: %s\n",
+	gather_logf_ident (1, "> blit-array (x%d), type: %s\n",
 		array_size, shorten_name(typeid(*obj).name()).c_str());
 	for (size_t i=0; i<array_size; ++i)
 	{
 		blit (ar, obj [i]);
 	}
-	gather_logf_indent (-1, 0);
+	gather_logf_ident (-1, 0);
 }
 
 template<class ArchiveT, class ObjectT>
 inline void blit_impl (ArchiveT& ar, ObjectT& obj, unsigned version, array_tag)
 {
-	gather_logf ("ARRAY ObjectT: %s\n", util::dm(typeid(ObjectT).name()).c_str());
+	//gather_logf ("ARRAY ObjectT: %s\n", util::dm(typeid(ObjectT).name()).c_str());
 	ObjectT* aa = (ObjectT*) pulmotor_addressof (obj);
 
 	size_t const array_size = boost::extent<ObjectT>::value;
 	typedef typename remove_all_extents<ObjectT>::type pointee_t;
 
-	gather_logf_indent (0, "array (@ %p) x %lu, type: %s\n",
+	gather_logf_ident (0, "array (@ %p) x %lu, type: %s\n",
 		aa, array_size, shorten_name(typeid(obj).name()).c_str());
 
-	gather_logf_indent (0, "  >>>> pointee: %s\n", typeid(pointee_t).name ());
+	gather_logf_ident (0, "  >>>> pointee: %s\n", typeid(pointee_t).name ());
 	
 	blit_section::class_info* ci = ar.template get_class_info<typename clean<pointee_t>::type>();
 
-	gather_logf_indent (1, 0);
+	gather_logf_ident (1, 0);
 	ar.begin_area (ci, (uintptr_t)aa, sizeof(obj[0]), array_size, get_category<typename clean<ObjectT>::type>::value, true);
 	for (size_t i=0; i<array_size; ++i)
 		blit (ar, obj[i]);
 	ar.end_area (ci, (uintptr_t)aa);
-	gather_logf_indent (-1, 0);
+	gather_logf_ident (-1, 0);
 }
 
 template<class ArchiveT, class ObjectT>
@@ -1026,26 +1057,26 @@ inline void blit_impl (ArchiveT& ar, ptr_address<ObjectT> objaddr, unsigned vers
 {
 	ObjectT** oa = reinterpret_cast<ObjectT**> (objaddr.addr);
 
-	gather_logf_indent (0, "pointer (%p x %lu @ %p), type: %s\n",
+	gather_logf_ident (0, "pointer (%p x %lu @ %p), type: %s\n",
 		*oa, objaddr.count, objaddr.addr, shorten_name(typeid(ObjectT).name()).c_str());
 
 	typedef typename clean<ObjectT>::type pointee_t;
-	gather_logf_indent (0, "  >>>> pointee: %s\n", typeid(pointee_t).name ());
+	gather_logf_ident (0, "  >>>> pointee: %s\n", typeid(pointee_t).name ());
 	blit_section::class_info* ci = get_category<pointee_t>::value == k_other ? ar.template get_class_info<pointee_t>() : NULL;
-	gather_logf_indent (1, 0);
+	gather_logf_ident (1, 0);
 	ar.begin_area (NULL, (uintptr_t)oa, sizeof (ObjectT*), 1, k_pointer);
 	
 	bool already_registered = ar.has_registered (*oa);
 
 	if (already_registered)
-		gather_logf_indent (0, "Object/ptr already registered\n");
+		gather_logf_ident (0, "Object/ptr already registered\n");
 
 	typedef typename boost::mpl::bool_<is_primitive<ObjectT>::value>::type is_prim_t;
 
 	// process class only if pointer is valid and not registered yet
 	if (!already_registered && *oa)
 	{
-		gather_logf_indent (1, 0);
+		gather_logf_ident (1, 0);
 		if (objaddr.count > 1)
 			ar.begin_area (ci, (uintptr_t)*oa, sizeof (ObjectT), objaddr.count, get_category<pointee_t>::value, true);
 
@@ -1054,11 +1085,11 @@ inline void blit_impl (ArchiveT& ar, ptr_address<ObjectT> objaddr, unsigned vers
 		//blit_array_helper (ar, *ppobj, objaddr.count, version, is_prim_t ());
 		if (objaddr.count > 1)
 			ar.end_area (ci, (uintptr_t)*oa);
-		gather_logf_indent (-1, 0);
+		gather_logf_ident (-1, 0);
 	}
 
 	ar.end_area (NULL, (uintptr_t)oa);
-	gather_logf_indent (-1, 0);
+	gather_logf_ident (-1, 0);
 }
 
 template<class ArchiveT, class ObjectT>
