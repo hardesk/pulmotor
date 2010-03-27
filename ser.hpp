@@ -34,7 +34,7 @@
 
 #define PULMOTOR_ADD_MARKERS 0
 #define PULMOTOR_DEBUG_GATHER 0
-#define PULMOTOR_DEBUG_WRITE 0
+#define PULMOTOR_DEBUG_WRITE 1
 
 #define	pulmotor_addressof(x) (&reinterpret_cast<unsigned char const&> (x))
 
@@ -842,6 +842,12 @@ struct blit_section
 						uintptr_t ptr = fetch_pointer (ws.buffer, memberOffset);
 						write_logf_ident (0, "< POINTER: %p\n", ptr);
 
+						if (!ptr)
+						{
+							write_logf_ident (0, "< ZERO, not following\n");
+							break;
+						}
+
 						object* o = find_object_at (ptr);
 						if (!o)
 						{
@@ -906,11 +912,17 @@ struct blit_section
 			uintptr_t objectOffset = this_offset + o->size () * ii; 
 			switch (o->get_category ())
 			{
-				// if the object is a pointer, simply follow it
+				// if the object is a pointer, simply follow it, unless it is zero, then do nothing
 				case k_pointer:
 				{
 					uintptr_t ptr = fetch_pointer (ws.buffer, objectOffset);
 					write_logf_ident (0, "< POINTER: %p\n", ptr);
+
+					if (!ptr)
+					{
+						write_logf_ident (0, "< ZERO, not following\n");
+						break;
+					}
 
 					object* o = find_object_at (ptr);
 					if (!o)
@@ -1189,6 +1201,37 @@ inline T* fixup_pointers (pulmotor::blit_section_info* bsi)
 
 	T* pt = (T*)data;
 	return pt;
+}
+
+inline size_t write_file (pulmotor::string const& name, u8 const* ptr, size_t size)
+{
+	std::auto_ptr<basic_output_buffer> output = create_plain_output (name);
+
+	if (output.get ())
+	{
+		size_t written = 0;
+		error_id result = output->write (ptr, size, &written);
+
+		if (result == pulmotor::k_ok)
+			return written;
+
+		return 0;
+	}
+
+	return 0;
+}
+
+template<class T>
+size_t write_file (pulmotor::string const& name, T& root, bool be, size_t sectionalign = 16)
+{
+	blit_section bs;
+
+	bs | root;
+
+	std::vector<pulmotor::u8> buffer;
+	bs.write_out (buffer, be && is_le (), sectionalign);
+
+	return write_file (name, &buffer[0], buffer.size ());
 }
 
 }

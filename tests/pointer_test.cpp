@@ -7,25 +7,27 @@ namespace data {
 struct A
 {
 	float	c;
+
+	A() : c(0) {}
 	
 	template<class ArchiveT>
-	void blit (ArchiveT& ar, unsigned version) {
+	void serialize (ArchiveT& ar, unsigned version) {
 		ar | c;
 	}
 };
 
 struct B
 {
-	A*		pa;
 	A*		pz;
+	A*		pa;
 	
 	template<class ArchiveT>
-	void blit (ArchiveT& ar, unsigned version) {
-		ar | pa | pz;
+	void serialize (ArchiveT& ar, unsigned version) {
+		ar | pz | pulmotor::ptr (pa, 16);
 	}
 };
 
-} // penis
+}
 
 int main ()
 {
@@ -36,22 +38,15 @@ int main ()
 	data::B b;
 	b.pa = new data::A [16];
 	b.pz = 0;
-	blit_object (bs, b);
+	bs | b;
 
 	bs.dump_gathered ();
 
-	//
 	std::vector<unsigned char> buffer;
-	{
-		std::vector<unsigned char> buf;
-		pulmotor::util::blit_to_container (b, buf, false);
-	}
+	pulmotor::util::blit_to_container (b, buffer, true);
+	
+	util::hexdump (&buffer[0], buffer.size ());
+	util::write_file ("pointer_test.pulmotor", &buffer[0], buffer.size ());
 
-	{
-		std::auto_ptr<basic_output_buffer> po = create_plain_output (pulmotor_native_path("pointer_test.pulmotor"));
-		size_t written = 0;
-		po->write (&*buffer.begin (), buffer.size (), &written);
-	}
-
-	return 1;
+	return 0;
 }
