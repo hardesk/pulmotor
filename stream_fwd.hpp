@@ -8,8 +8,10 @@
 namespace pulmotor
 {
 #ifdef _WIN32
+	typedef wchar_t pp_char;
 	typedef std::wstring string;
 #else
+	typedef char pp_char;
 	typedef std::string string;
 #endif
 

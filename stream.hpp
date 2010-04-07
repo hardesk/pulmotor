@@ -18,6 +18,8 @@
 
 namespace pulmotor
 {
+	typedef u32 file_size_t;
+	
 	enum error_id
 	{
 		k_ok,
@@ -94,7 +96,7 @@ namespace pulmotor
 	class PULMOTOR_ATTR_DLL cfile_output_buffer : public basic_output_buffer
 	{
 	public:
-		cfile_output_buffer (pulmotor::string const& file_name);
+		cfile_output_buffer (pulmotor::pp_char const* file_name);
 		virtual ~cfile_output_buffer();
 
 		virtual error_id write (void const* src, size_t count, size_t* was_written);
@@ -104,7 +106,9 @@ namespace pulmotor
 		}
 
 	private:
+#ifdef _DEBUG
 		string	name_;
+#endif
 		FILE*	file_;
 	};
 
@@ -112,13 +116,15 @@ namespace pulmotor
 	class PULMOTOR_ATTR_DLL cfile_input_buffer : public basic_input_buffer
 	{
 	public:
-		cfile_input_buffer (pulmotor::string const& file_name);
+		cfile_input_buffer (pulmotor::pp_char const* file_name);
 		virtual ~cfile_input_buffer();
 
 		virtual error_id read (void* dest, size_t count, size_t* was_read);
 
 	private:
+#ifdef _DEBUG
 		string	name_;
+#endif
 		FILE*	file_;
 	};
 
@@ -194,10 +200,15 @@ namespace pulmotor
 	};
 
 	// global input/output factory functions
-	std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_input (pulmotor::string const& file_name);
+	file_size_t get_file_size (pulmotor::pp_char const* file_name);
 
-	std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_plain_input (pulmotor::string const& file_name);
-	std::auto_ptr<basic_output_buffer> PULMOTOR_ATTR_DLL create_plain_output( pulmotor::string const& file_name );
+	std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_plain_input (pulmotor::pp_char const* file_name);
+	std::auto_ptr<basic_output_buffer> PULMOTOR_ATTR_DLL create_plain_output(pulmotor::pp_char const* file_name);
+	
+	inline std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_input (pulmotor::pp_char const* file_name)
+	{
+		return create_plain_input (file_name);
+	}
 }
 
 #endif // PULMOTOR_CONTAINER_HPP_

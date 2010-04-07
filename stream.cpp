@@ -1,4 +1,5 @@
 #include "stream.hpp"
+#include <sys/stat.h>
 
 namespace pulmotor
 {
@@ -23,13 +24,15 @@ basic_output_buffer::~basic_output_buffer()
 {}
 
 //
-cfile_output_buffer::cfile_output_buffer (string const& filename)
-:	name_ (filename)
+cfile_output_buffer::cfile_output_buffer (pulmotor::pp_char const* file_name)
+#ifdef _DEBUG
+	:	name_ (file_name)
+#endif
 {
 #ifdef _WIN32
-	file_ = _wfopen (filename.c_str(), L"wb+");
+	file_ = _wfopen (file_name, L"wb+");
 #else
-	file_ = fopen (filename.c_str(), "wb+");
+	file_ = fopen (file_name, "wb+");
 #endif
 }
 
@@ -47,13 +50,15 @@ error_id cfile_output_buffer::write (void const* src, size_t count, size_t* was_
 	return k_ok;
 }
 
-cfile_input_buffer::cfile_input_buffer (string const& filename)
-:	name_ (filename)
+cfile_input_buffer::cfile_input_buffer (pulmotor::pp_char const* file_name)
+#ifdef _DEBUG
+	:	name_ (file_name)
+#endif
 {
 #ifdef _WIN32
-	file_ = _wfopen (filename.c_str(), L"rb");
+	file_ = _wfopen (file_name, L"rb");
 #else
-	file_ = fopen (filename.c_str(), "rb");
+	file_ = fopen (file_name, "rb");
 #endif
 }
 
@@ -115,7 +120,7 @@ size_t native_file_output::putcn( char const* src, size_t count )
 }*/
 
 
-std::auto_ptr<basic_input_buffer> create_plain_input( pulmotor::string const& file_name )
+std::auto_ptr<basic_input_buffer> create_plain_input (pulmotor::pp_char const* file_name)
 {
 	std::auto_ptr<basic_input_buffer> ptr;
 	
@@ -124,7 +129,7 @@ std::auto_ptr<basic_input_buffer> create_plain_input( pulmotor::string const& fi
 	return ptr;
 }
 
-std::auto_ptr<basic_output_buffer> create_plain_output( pulmotor::string const& file_name )
+std::auto_ptr<basic_output_buffer> create_plain_output (pulmotor::pp_char const* file_name)
 {
 	std::auto_ptr<basic_output_buffer> ptr;
 	
@@ -133,4 +138,12 @@ std::auto_ptr<basic_output_buffer> create_plain_output( pulmotor::string const& 
 	return ptr;
 }
 
+file_size_t get_file_size (pulmotor::pp_char const* file_name)
+{
+	struct stat s;
+	if (stat (file_name, &s) == 0)
+		return s.st_size;
+	return 0;
+}
+	
 }

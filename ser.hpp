@@ -1178,9 +1178,14 @@ inline ArchiveT& operator | (ArchiveT& ar, ObjectT const& obj)
 namespace util
 {
 
-inline pulmotor::blit_section_info* get_bsi (void* data, bool skipHeader = true)
+inline pulmotor::blit_section_info* get_bsi (void* data, bool dataIncludesHeader = true)
 {
-	return (pulmotor::blit_section_info*) ((char*)data + (skipHeader ? 0 : sizeof (pulmotor::basic_header)));
+	return (pulmotor::blit_section_info*) ((char*)data + (dataIncludesHeader ? sizeof (pulmotor::basic_header) : 0));
+}
+
+inline u8* get_root (void* data)
+{
+	return (u8*)data + get_bsi (data, true)->data_offset + sizeof (pulmotor::basic_header);
 }
 
 template<class T>
@@ -1203,6 +1208,13 @@ inline T* fixup_pointers (pulmotor::blit_section_info* bsi)
 	return pt;
 }
 
+inline void fixup (pulmotor::blit_section_info* bsi)
+{
+	char* data = ((char*)bsi + bsi->data_offset);
+	uintptr_t* fixups = (uintptr_t*)((char*)bsi + bsi->fixup_offset);
+	util::fixup_pointers (data, fixups, bsi->fixup_count);
+}
+	
 inline size_t write_file (pulmotor::string const& name, u8 const* ptr, size_t size)
 {
 	std::auto_ptr<basic_output_buffer> output = create_plain_output (name);
