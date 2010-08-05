@@ -10,6 +10,10 @@
 #include "stream_fwd.hpp"
 #include "util.hpp"
 
+#if PULMOTOR_STIR_PATH_SUPPORT
+#include <stir/path.hpp>
+#endif
+
 #ifdef _WINNT
 #define pulmotor_native_path(x) L ## x
 #else
@@ -201,14 +205,21 @@ namespace pulmotor
 
 	// global input/output factory functions
 	file_size_t get_file_size (pulmotor::pp_char const* file_name);
-
 	std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_plain_input (pulmotor::pp_char const* file_name);
-	std::auto_ptr<basic_output_buffer> PULMOTOR_ATTR_DLL create_plain_output(pulmotor::pp_char const* file_name);
+	std::auto_ptr<basic_output_buffer> PULMOTOR_ATTR_DLL create_plain_output(pulmotor::pp_char const* file_name);	
+	inline std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_input (pulmotor::pp_char const* file_name) { return create_plain_input (file_name); }
 	
-	inline std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_input (pulmotor::pp_char const* file_name)
-	{
-		return create_plain_input (file_name);
-	}
+#if PULMOTOR_STIR_PATH_SUPPORT
+	// global input/output factory functions
+	inline file_size_t get_file_size (stir::platform_path const& file_name)
+	{ return get_file_size (file_name.c_str()); }
+	inline std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_plain_input (stir::platform_path const& file_name)
+	{ return create_plain_input (file_name.c_str()); }
+	inline std::auto_ptr<basic_output_buffer> PULMOTOR_ATTR_DLL create_plain_output(stir::platform_path const& file_name)
+	{ return create_plain_output (file_name.c_str()); }
+	inline std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_input (stir::platform_path const& file_name)
+	{ return create_plain_input (file_name.c_str()); }
+#endif
 }
 
 #endif // PULMOTOR_CONTAINER_HPP_

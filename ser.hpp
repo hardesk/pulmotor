@@ -1,6 +1,8 @@
 #ifndef STIR_SER_HPP_
 #define STIR_SER_HPP_
 
+#include "pulmotor_config.hpp"
+
 #include <boost/tr1/type_traits.hpp>
 #include <boost/type_traits/extent.hpp>
 #include <boost/type_traits/is_class.hpp>
@@ -824,7 +826,7 @@ struct blit_section
 			member_info const& mi = *it;
 			for (size_t i=0; i<mi.count_; ++i)
 			{
-				// offset in the an already written buffer where the pointer lies
+				// offset in the already written buffer where the pointer lies
 				uintptr_t memberOffset = objectOffset + mi.offset_ + mi.size_ * i;
 
 				switch (mi.category_)
@@ -1215,7 +1217,7 @@ inline void fixup (pulmotor::blit_section_info* bsi)
 	util::fixup_pointers (data, fixups, bsi->fixup_count);
 }
 	
-inline size_t write_file (pulmotor::string const& name, u8 const* ptr, size_t size)
+inline size_t write_file (pp_char const* name, u8 const* ptr, size_t size)
 {
 	std::auto_ptr<basic_output_buffer> output = create_plain_output (name);
 
@@ -1234,7 +1236,7 @@ inline size_t write_file (pulmotor::string const& name, u8 const* ptr, size_t si
 }
 
 template<class T>
-size_t write_file (pulmotor::string const& name, T& root, bool be, size_t sectionalign = 16)
+size_t write_file (pp_char const* name, T& root, bool be, size_t sectionalign = 16)
 {
 	blit_section bs;
 

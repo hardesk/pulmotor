@@ -18,6 +18,10 @@
 #define PULMOTOR_ATTR_DLL
 #endif
 
+#include <string>
+
+#define PULMOTOR_STIR_PATH_SUPPORT 1
+
 namespace pulmotor
 {
 
@@ -28,6 +32,14 @@ typedef signed short int	s16;
 typedef unsigned int		u32;
 typedef signed int			s32;
 
+#ifdef _WIN32
+	typedef wchar_t pp_char;
+	typedef std::wstring string;
+#else
+	typedef char pp_char;
+	typedef std::string string;
+#endif
+	
 }
 
 #endif

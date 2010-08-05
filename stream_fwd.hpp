@@ -7,25 +7,14 @@
 
 namespace pulmotor
 {
-#ifdef _WIN32
-	typedef wchar_t pp_char;
-	typedef std::wstring string;
-#else
-	typedef char pp_char;
-	typedef std::string string;
-#endif
-
-	typedef unsigned char u8;
-	typedef unsigned short u16;
-
 	class PULMOTOR_ATTR_DLL basic_input_buffer;
 	class PULMOTOR_ATTR_DLL basic_output_buffer;
 
 	template<class T> class PULMOTOR_ATTR_DLL basic_version;
 	class PULMOTOR_ATTR_DLL basic_header;
 
-	std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_plain_input( pulmotor::string const& file_name );
-	std::auto_ptr<basic_output_buffer> PULMOTOR_ATTR_DLL create_plain_output( pulmotor::string const& file_name );
+	std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_plain_input (pp_char const* file_name);
+	std::auto_ptr<basic_output_buffer> PULMOTOR_ATTR_DLL create_plain_output (pp_char const* file_name);
 }
 
 #endif // PULMOTOR_CONTAINER_FWD_HPP_
