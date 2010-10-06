@@ -11,7 +11,7 @@ struct A
 	int v2;
 	
 	template<class ArchiveT>
-	void blit (ArchiveT& ar, unsigned version)
+	void serialize (ArchiveT& ar, unsigned version)
 	{
 		ar | v1 | pb | v2;
 	}
@@ -24,7 +24,7 @@ struct B
 	int v2;
 	
 	template<class ArchiveT>
-	void blit (ArchiveT& ar, unsigned version)
+	void serialize (ArchiveT& ar, unsigned version)
 	{
 		ar | v1 | pa | v2;
 	}
@@ -38,7 +38,7 @@ struct S
 	int	value2;
 
 	template<class ArchiveT>
-	void blit (ArchiveT& ar, unsigned version)
+	void serialize (ArchiveT& ar, unsigned version)
 	{
 		ar | value1 | ps | value2;
 	}
@@ -51,24 +51,16 @@ struct Q
 	int	value2;
 
 	template<class ArchiveT>
-	void blit (ArchiveT& ar, unsigned version)
+	void serialize (ArchiveT& ar, unsigned version)
 	{
 		ar | value1 | pq | value2;
 	}
 };
 
-template<class T>
-void blit_container (T& a, std::vector<unsigned char>& data)
-{
-	pulmotor::blit_section bs;
-	blit_object (bs, a);
-	
-	bs.write_out (data);
-}
-
 int main ()
 {
-/*	{
+	
+	{
 		A a;
 		B b;
 		
@@ -82,9 +74,10 @@ int main ()
 
 		std::vector<unsigned char> odata;
 
-		pulmotor::util::blit_to_container (a, odata, false);
+		pulmotor::util::blit_to_container (a, odata, pulmotor::target_traits::current);
+		pulmotor::util::hexdump (&*odata.begin (), odata.size());
 		
-		A* ra = pulmotor::util::fixup_pointers<A> (pulmotor::util::get_bsi (&*odata.begin (), false));
+		A* ra = pulmotor::util::fixup_pointers<A> (&*odata.begin ());
 		
 		assert (ra->v1 == a.v1);
 		assert (ra->pb->v1 == b.v1);
@@ -96,7 +89,7 @@ int main ()
 
 		assert (ra->pb != 0);
 		assert (ra->pb->pa != 0);
-	}*/
+	}
 	
 	{
 		S s1, s2, s3;
@@ -111,9 +104,10 @@ int main ()
 		
 		std::vector<unsigned char> odata;
 		
-		pulmotor::util::blit_to_container (s1, odata, false);
+		pulmotor::util::blit_to_container (s1, odata, pulmotor::target_traits::current);
+		pulmotor::util::hexdump (&*odata.begin (), odata.size());
 		
-		S* rs = pulmotor::util::fixup_pointers<S> (pulmotor::util::get_bsi (&*odata.begin (), false));
+		S* rs = pulmotor::util::fixup_pointers<S> (&*odata.begin ());
 
 		// nuke originals
 		memset (&s1, 0, sizeof(s1));

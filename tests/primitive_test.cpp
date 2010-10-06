@@ -1,8 +1,8 @@
 #include <pulmotor/ser.hpp>
 #include <pulmotor/stream.hpp>
 #include <pulmotor/util.hpp>
+#include <stir/dynamic_array>
 #include <string>
-
 
 struct A
 {
@@ -30,7 +30,7 @@ struct B
 	char* s;
 	int x;
 	//A a;
-	//A aa[2];
+	A aa[2];
 
 	template<class ArchiveT>
 	void serialize (ArchiveT& ar, unsigned version)
@@ -81,10 +81,91 @@ struct P
 	}
 };
 
+struct section
+{
+//	areaf		area; // normalized coordinates (uv)
+	unsigned short	page_index, group_index;
+//	castring	original_name;
+	
+	template<class ArchiveT>
+	void serialize (ArchiveT& ar, unsigned version)
+	{
+//		ar | area | page_index | group_index | original_name;
+		ar | page_index | group_index;
+	}
+};
+
+
+struct atlas
+{
+	stir::dynamic_array<section>	sections;
+	
+	atlas () : sections (2) {
+		sections[0].page_index = 0xaaaa;
+		sections[0].group_index = 0xbbbb;
+		sections[1].page_index = 0xcccc;
+		sections[1].group_index = 0xdddd;
+	}
+	
+	template<class ArchiveT>
+	void serialize (ArchiveT& ar, unsigned version)
+	{
+		ar | sections;
+	}	
+};
+
+namespace rec {
+
+struct X {	
+	int v;
+	template<class ArchiveT> void serialize (ArchiveT& ar, unsigned version) { ar | v; }	
+};
+	
+struct Y {
+	X v;
+	template<class ArchiveT> void serialize (ArchiveT& ar, unsigned version) { ar | v; }	
+};
+	
+struct Z {
+	Y v;
+	template<class ArchiveT> void serialize (ArchiveT& ar, unsigned version) { ar | v; }	
+};
+	
+}
+
 int main ()
 {
 	using namespace pulmotor;
-
+	
+//	{
+//		printf ("TESTX\n");
+//		blit_section bs;
+//		
+//		rec::Z z;
+//		z.v.v.v = 10;
+//		bs | z;
+//		bs.dump_gathered ();
+//		
+//		std::vector<unsigned char> buf;
+//		bs.write_out (buf, target_traits::current);
+//		pulmotor::util::hexdump (&*buf.begin (), buf.size());
+//	}
+//	
+	
+	// composing composite
+	{
+		printf ("TEST0\n");
+		blit_section bs;
+		
+		atlas a;
+		bs | a;
+		bs.dump_gathered ();
+		
+		std::vector<unsigned char> buf;
+		bs.write_out (buf, target_traits::current);
+		pulmotor::util::hexdump (&*buf.begin (), buf.size());
+	}
+	
 	{	
 		printf ("TEST1\n");
 		blit_section bs;
@@ -95,8 +176,8 @@ int main ()
 		bs.dump_gathered ();
 		
 		std::vector<unsigned char> buf, bufx;
-		bs.write_out (buf, pulmotor::is_be ());
-		bs.write_out (bufx, pulmotor::is_le ());
+		bs.write_out (buf, target_traits::le_lp32);
+		bs.write_out (bufx, target_traits::be_lp32);
 		printf ("little-endian\n");
 		pulmotor::util::hexdump (&*buf.begin (), buf.size());
 
@@ -116,7 +197,7 @@ int main ()
 		bs.dump_gathered ();
 		
 		std::vector<unsigned char> buf;
-		bs.write_out (buf, false);
+		bs.write_out (buf, target_traits::be_lp32);
 		pulmotor::util::hexdump (&*buf.begin (), buf.size());
 	}
 
@@ -132,7 +213,7 @@ int main ()
 		bs.dump_gathered ();
 		
 		std::vector<unsigned char> buf;
-		bs.write_out (buf, false);
+		bs.write_out (buf, target_traits::be_lp32);
 		pulmotor::util::hexdump (&*buf.begin (), buf.size());
 	}
 
@@ -150,10 +231,11 @@ int main ()
 		bs.dump_gathered ();
 		
 		std::vector<unsigned char> buf;
-		bs.write_out (buf, true);
+		bs.write_out (buf, target_traits::be_lp32);
 		pulmotor::util::hexdump (&*buf.begin (), buf.size());
 	}
 
+	// pointer to structure
 	{
 		printf ("TEST5\n");
 		blit_section bs;
@@ -166,7 +248,7 @@ int main ()
 		bs.dump_gathered ();
 		
 		std::vector<unsigned char> buf;
-		bs.write_out (buf, true);
+		bs.write_out (buf, target_traits::be_lp32);
 		pulmotor::util::hexdump (&*buf.begin (), buf.size());
 	}
 
@@ -187,7 +269,7 @@ int main ()
 		bs.dump_gathered ();
 		
 		std::vector<unsigned char> buf;
-		bs.write_out (buf, true);
+		bs.write_out (buf, target_traits::be_lp32);
 		pulmotor::util::hexdump (&*buf.begin (), buf.size());
 	}
 
@@ -205,7 +287,7 @@ int main ()
 		bs.dump_gathered ();
 		
 		std::vector<unsigned char> buf;
-		bs.write_out (buf, true);
+		bs.write_out (buf, target_traits::be_lp32);
 		pulmotor::util::hexdump (&*buf.begin (), buf.size());
 	}
 
@@ -221,19 +303,18 @@ int main ()
 		b.x = 0x12341234;
 		//b.a.x = 0x000a1111;
 		//b.a.y = 0x000a2222;
-		//b.aa[0].x = 0xaaaa0011;
-		//b.aa[0].y = 0xaaaa0022;
-		//b.aa[1].x = 0xaaaa1111;
-		//b.aa[1].y = 0xaaaa1122;
+		b.aa[0].x = 0xaaaa0011;
+		b.aa[0].y = 0xaaaa0022;
+		b.aa[1].x = 0xaaaa1111;
+		b.aa[1].y = 0xaaaa1122;
 
 		bs | b;
 		bs.dump_gathered ();
 		
 		std::vector<unsigned char> buf;
-		bs.write_out (buf, true);
+		bs.write_out (buf, target_traits::be_lp32);
 		pulmotor::util::hexdump (&*buf.begin (), buf.size());
 	}
-
 
 	return 1;
 }

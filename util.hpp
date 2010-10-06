@@ -7,6 +7,7 @@
 #include <utility>
 #include <stdint.h>
 #include <cstdio>
+#include <cassert>
 
 namespace pulmotor { namespace util {
 
@@ -36,6 +37,24 @@ struct swap_element_endian<4>
 	}
 };
 
+template <>
+struct swap_element_endian<8>
+{
+	static void swap (void* p) {
+		u64 a = *(u64*)p;
+		u64 b = ((a & 0x00000000000000ffLL) << 56)	|
+		   		((a & 0x000000000000ff00LL) << 40)	|
+			   	((a & 0x0000000000ff0000LL) << 24)	|
+			   	((a & 0x00000000ff000000LL) << 8)	|
+			   	((a & 0x000000ff00000000LL) >> 8)	|
+			   	((a & 0x0000ff0000000000LL) >> 24)	|
+			   	((a & 0x00ff000000000000LL) >> 40)	|
+			   	((a & 0xff00000000000000LL) >> 56)
+				;
+		*(u64*)p = b;
+	}
+};
+
 template<int Size>
 inline void swap_endian (void* arg, size_t count)
 {
@@ -53,6 +72,7 @@ inline void swap_variable (T& a)
 
 inline void swap_elements (void* ptr, size_t size, size_t count)
 {
+	assert (size < 16);
 	switch (size)
 	{
 		default:
@@ -64,13 +84,13 @@ inline void swap_elements (void* ptr, size_t size, size_t count)
 		case 4:
 			swap_endian<4> (ptr, count);
 			break;
-//		case 8:
-//			swap_endian<8> (p, mi.count_);
-//			break;
+		case 8:
+			swap_endian<8> (ptr, count);
+			break;
 	}
 }
 
-void set_offsets (void* data, std::pair<uintptr_t,uintptr_t> const* fixups, size_t fixup_count, bool change_endianess);
+void set_offsets (void* data, std::pair<uintptr_t,uintptr_t> const* fixups, size_t fixup_count, int ptrsize, bool change_endianess);
 void fixup_pointers (void* data, uintptr_t const* fixups, size_t fixup_count);
 
 }}

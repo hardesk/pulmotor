@@ -50,6 +50,7 @@ struct B
 int main ()
 {
 
+	// pointer to an array
 	{
 		A a;
 		a.size = 8;
@@ -60,7 +61,7 @@ int main ()
 			
 		std::vector<unsigned char> odata;
 
-		pulmotor::util::blit_to_container (a, odata, false);
+		pulmotor::util::blit_to_container (a, odata, pulmotor::target_traits::be_lp32);
 		
 		A* ra = pulmotor::util::fixup_pointers<A> (pulmotor::util::get_bsi (&*odata.begin (), false));
 
@@ -69,19 +70,20 @@ int main ()
 			assert ((size_t)ra->px [i].value == i);
 	}
 
+	// array of structs
 	{
 		B b;		
 		for (size_t i=0; i<sizeof(b.xa) / sizeof(b.xa[0]); ++i)
 			b.xa [i].value = i;
-			
+		
 		std::vector<unsigned char> odata;
-		pulmotor::util::blit_to_container (b, odata, false);
+		pulmotor::util::blit_to_container (b, odata, pulmotor::target_traits::be_lp32);
 		
 		B* rb = pulmotor::util::fixup_pointers<B> (pulmotor::util::get_bsi (&*odata.begin (), false));
-
+		
 		for (size_t i=0; i<sizeof(rb->xa) / sizeof(rb->xa[0]); ++i)
 			assert ((size_t)rb->xa[i].value == i);
 	}
-
+	
 	return 0;
 }

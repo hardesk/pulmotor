@@ -1,8 +1,18 @@
 #include "stream.hpp"
 #include <sys/stat.h>
+#include <errno.h>
 
 namespace pulmotor
 {
+	
+#ifdef _DEBUG
+void checkerrno() {
+	if (errno != 0)
+		printf("errno: %d\n", errno);
+}
+#else
+	inline void checkerrno() {}
+#endif
 
 const char basic_header::pulmotor_magic_text[basic_header::magic_chars]
 = { 'p', 'u', 'l', 'M' };
@@ -16,7 +26,7 @@ char const* get_error_id_text( error_id id )
 {
 	return error_desc [id];
 }
-
+	
 basic_input_buffer::~basic_input_buffer()
 {}
 
@@ -143,6 +153,9 @@ file_size_t get_file_size (pulmotor::pp_char const* file_name)
 	struct stat s;
 	if (stat (file_name, &s) == 0)
 		return s.st_size;
+	
+	checkerrno ();
+	
 	return 0;
 }
 	
