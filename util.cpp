@@ -14,7 +14,7 @@ namespace pulmotor {
 #endif	
 
 // TODO: this should go to another file
-target_traits const target_traits::current = { sizeof(void*)*8, PULMOTOR_ENDIANESS };
+target_traits const target_traits::current = { sizeof(void*), PULMOTOR_ENDIANESS };
 
 target_traits const target_traits::le_lp32 = { 4, false };
 target_traits const target_traits::be_lp32 = { 4, true };

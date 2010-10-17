@@ -76,6 +76,7 @@ inline void swap_elements (void* ptr, size_t size, size_t count)
 	switch (size)
 	{
 		default:
+			assert ("unsupported primitive type");
 			break;
 
 		case 2:

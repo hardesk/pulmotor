@@ -34,7 +34,7 @@
 #include "stream.hpp"
 #include "util.hpp"
 
-#define PULMOTOR_ADD_MARKERS 0
+#define PULMOTOR_ADD_MARKERS 1
 #define PULMOTOR_DEBUG_GATHER 0
 #define PULMOTOR_DEBUG_WRITE 0
 
