@@ -1,6 +1,9 @@
+#ifndef PULMOTOR_FWD_HPP_
+#define PULMOTOR_FWD_HPP_
+
 #include "pulmotor_config.hpp"
 #include "pulmotor_types.hpp"
-//
+
 //namespace std {
 //	template<class T> class allocator;
 //	template<class T, class Allocator> class vector;
@@ -44,3 +47,5 @@ namespace util
 }
 
 }
+
+#endif // PULMOTOR_FWD_HPP_

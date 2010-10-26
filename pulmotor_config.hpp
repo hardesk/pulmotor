@@ -1,7 +1,7 @@
 #ifndef PULMOTOR_HPP_
 #define PULMOTOR_HPP_
 
-#include "pulmotor_types.hpp"
+//#include "pulmotor_types.hpp"
 
 #ifdef _WIN32
 #pragma warning (disable: 4275)

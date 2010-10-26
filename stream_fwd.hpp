@@ -4,6 +4,7 @@
 #include <memory>
 #include <fstream>
 #include "pulmotor_config.hpp"
+#include "pulmotor_types.hpp"
 
 namespace pulmotor
 {

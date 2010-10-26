@@ -2,6 +2,7 @@
 #define PULMOTOR_UTILS_HPP_
 
 #include "pulmotor_config.hpp"
+#include "pulmotor_types.hpp"
 #include <cstring>
 #include <vector>
 #include <algorithm>
