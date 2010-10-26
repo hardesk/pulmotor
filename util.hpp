@@ -3,6 +3,7 @@
 
 #include "pulmotor_config.hpp"
 #include <cstring>
+#include <vector>
 #include <algorithm>
 #include <utility>
 #include <stdint.h>
@@ -10,6 +11,9 @@
 #include <cassert>
 
 namespace pulmotor { namespace util {
+	
+template<class T>
+inline void blit_to_container (T& a, std::vector<unsigned char>& odata, target_traits const& tt);
 
 std::string dm (char const*);
 void hexdump (void const* p, int len);

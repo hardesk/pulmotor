@@ -1,4 +1,5 @@
 #include "blit_holder.hpp"
+#include "ser.hpp"
 
 namespace pulmotor { namespace detail {
 	

@@ -2,6 +2,7 @@
 #define STIR_SER_HPP_
 
 #include "pulmotor_config.hpp"
+#include "pulmotor_types.hpp"
 
 #include <boost/tr1/type_traits.hpp>
 #include <boost/type_traits/extent.hpp>
@@ -34,7 +35,7 @@
 #include "stream.hpp"
 #include "util.hpp"
 
-#define PULMOTOR_ADD_MARKERS 1
+#define PULMOTOR_ADD_MARKERS 0
 #define PULMOTOR_DEBUG_GATHER 0
 #define PULMOTOR_DEBUG_WRITE 0
 
@@ -1442,16 +1443,6 @@ inline ArchiveT& operator | (ArchiveT& ar, ObjectT const& obj)
 namespace util
 {
 
-inline pulmotor::blit_section_info* get_bsi (void* data, bool dataIncludesHeader = true)
-{
-	return (pulmotor::blit_section_info*) ((u8*)data + (dataIncludesHeader ? sizeof (pulmotor::basic_header) : 0));
-}
-
-inline u8* get_root_data (void* data)
-{
-	return (u8*)data + get_bsi (data, true)->data_offset + sizeof (pulmotor::basic_header);
-}
-
 template<class T>
 inline void blit_to_container (T& a, std::vector<unsigned char>& odata, target_traits const& tt)
 {
@@ -1515,27 +1506,6 @@ size_t write_file (pp_char const* name, T& root, target_traits const& tt, size_t
 }
 
 }
-	
-template<class T>
-struct data
-{
-	data (void* pulM_ptr) : bsi_ (util::get_bsi(pulM_ptr))
-	{
-#ifdef _DEBUG
-		debug_ptr_ = (T*)((u8*)bsi_ + bsi_->data_offset);
-#endif
-	}
-	
-	T* get () const { return (T*)((u8*)bsi_ + bsi_->data_offset); }
-	T* operator->() const { return (T*)((u8*)bsi_ + bsi_->data_offset); }
-	T& operator*() const { return *(T*)((u8*)bsi_ + bsi_->data_offset); }
-	
-private:
-	blit_section_info*	bsi_;
-#ifdef _DEBUG
-	T*	debug_ptr_;
-#endif
-};	
 
 } // pulmotor
 
