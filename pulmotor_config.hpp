@@ -20,6 +20,7 @@
 #define PULMOTOR_ATTR_DLL
 #endif
 
+#define PULMOTOR_UNUSED(x) ((void)x)
 #define PULMOTOR_STIR_PATH_SUPPORT 1
 
 #endif

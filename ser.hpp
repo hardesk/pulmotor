@@ -412,11 +412,12 @@ struct blit_section
 
 		void dump_members (std::string const& prefix) const
 		{
-			//logf ("> class '%s', %lu members\n", get_name (), members_.size ());
+			//write_logf ("> class '%s', %lu members\n", get_name (), members_.size ());
 			for (size_t i=0; i<members_.size(); ++i)
 			{
 				member_info const& mi = members_[i];
-				logf ("%smember +%03lu, cat:%s, size:%2d, count:%2lu\n", prefix.c_str(), mi.offset_, to_string(mi.get_category()), mi.get_size(), mi.count_);
+				PULMOTOR_UNUSED(mi);
+				write_logf ("%smember +%03lu, cat:%s, size:%2d, count:%2lu\n", prefix.c_str(), mi.offset_, to_string(mi.get_category()), mi.get_size(), mi.count_);
 			}
 		}
 
@@ -688,23 +689,23 @@ struct blit_section
 
 	void dump_gathered ()
 	{
-		logf ("gathered- types:\n");
+		write_logf ("gathered- types:\n");
 		for (class_info_container_t::iterator it = class_infos_.begin (), end = class_infos_.end (); it != end; ++it)
 		{
 			class_info const& ci = *it->second;
-			logf ("  class (%p): '%s', cat: %s, %lu members, size: %d (%d)\n", it->second,
+			write_logf ("  class (%p): '%s', cat: %s, %lu members, size: %d (%d)\n", it->second,
 				shorten_name(ci.get_name ()).c_str(), to_string (ci.get_category()), ci.member_count (), ci.get_size (), ci.get_alignment());
 			ci.dump_members ("    ");
 		}
 
-		logf ("pointer objects (roots: %lu):\n", roots_.size ());
+		write_logf ("pointer objects (roots: %lu):\n", roots_.size ());
 
 		int i = 0;
 		for (object_ptr_t::iterator it = objects_.get<ptr_tag>().begin (), end = objects_.get<ptr_tag>().end (); it != end; ++it)
 		{
 			object const* o = *it;
 			object_container_t::iterator rootIt = std::find (roots_.begin (), roots_.end (), o);
-			logf ("  [%03d] %s%p, cat: %s, size:%d x %d class: '%s'\n",
+			write_logf ("  [%03d] %s%p, cat: %s, size:%d x %d class: '%s'\n",
 				i, rootIt == roots_.end () ? "" : "-[ROOT]- ", o->data (), to_string (o->get_category ()), o->size (), o->count (),
 			   	shorten_name (o->get_class_name ()).c_str ());
 			++i;
