@@ -21,8 +21,8 @@ class blit_holder
 {
 	u8*		data_;
 	size_t	size_;
-#ifdef DEBUG
-	T*		object_;
+#ifdef _DEBUG
+	T const* object_;
 #endif
 
 	blit_holder (blit_holder const&);
@@ -32,7 +32,7 @@ public:
 	blit_holder (pulmotor::pp_char const* fname)
 	:	data_ (0)
 	,	size_ (0)
-#if DEBUG
+#if _DEBUG
 	,	object_ (0)
 #endif
 	{
@@ -42,7 +42,7 @@ public:
 #if PULMOTOR_STIR_PATH_SUPPORT
 	explicit blit_holder (stir::platform_path const& fname)
 	:	data_ (0), size_ (0)
-#if DEBUG
+#if _DEBUG
 	,	object_ (0)
 #endif
 	{
@@ -53,7 +53,7 @@ public:
 	blit_holder ()
 	:	data_ (0)
 	,	size_ (0)
-	#if DEBUG
+	#if _DEBUG
 	,	object_ (0)
 	#endif
 	{}
@@ -61,7 +61,7 @@ public:
 	void load (pulmotor::pp_char const* fname)
 	{
 		detail::load_impl (fname, size_, data_);		
-	#if DEBUG
+	#if _DEBUG
 		object_ = &ref ();
 	#endif
 	}
