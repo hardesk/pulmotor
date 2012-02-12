@@ -4,12 +4,12 @@
 #include "pulmotor_config.hpp"
 #include "pulmotor_types.hpp"
 
-#include <boost/tr1/type_traits.hpp>
-#include <boost/type_traits/extent.hpp>
-#include <boost/type_traits/is_class.hpp>
-#include <boost/type_traits/is_integral.hpp>
-#include <boost/type_traits/is_array.hpp>
-#include <boost/type_traits/is_floating_point.hpp>
+#include <tr1/type_traits>
+//#include <boost/type_traits/extent.hpp>
+//#include <boost/type_traits/is_class.hpp>
+//#include <boost/type_traits/is_integral.hpp>
+//#include <boost/type_traits/is_array.hpp>
+//#include <boost/type_traits/is_floating_point.hpp>
 
 #include <boost/mpl/if.hpp>
 
@@ -1309,7 +1309,7 @@ inline void blit_impl (ArchiveT& ar, ObjectT& obj, unsigned version, array_tag)
 	//gather_logf ("ARRAY ObjectT: %s\n", util::dm(typeid(ObjectT).name()).c_str());
 	ObjectT* aa = (ObjectT*) pulmotor_addressof (obj);
 
-	size_t const array_size = boost::extent<ObjectT>::value;
+	size_t const array_size = std::tr1::extent<ObjectT>::value;
 	typedef typename remove_all_extents<ObjectT>::type array_member_t;
 
 	gather_logf_ident (0, "array (@ %p) x %lu, type: %s\n",
