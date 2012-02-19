@@ -129,13 +129,6 @@ inline void logf_ident (int diff, char const* fmt, ...) {
 #define write_logf_ident(diff,...)
 #endif
 
-template<class T> struct version {
-	static int const value = 0;
-};
-template<class T> struct track_version {
-	static bool const value = false;
-};
-	
 enum { pointer_size = sizeof(void*) * 8 };
 
 namespace flag_util {
@@ -209,25 +202,6 @@ inline nvp_t operator/ (name_holder n, T const& value)
 //		| n("mama") / mama_
 //		| n("pedro") / pedro_
 //		;
-
-template<class T>
-struct ptr_address
-{
-	ptr_address (T* const* p, size_t cnt) : addr ((uintptr_t)p), count (cnt) {}
-	ptr_address (T const* const* p, size_t cnt) : addr ((uintptr_t)p), count (cnt) {}
-
-	uintptr_t	addr;
-	size_t		count;
-};
-
-template<class T, int N>
-struct array_address
-{
-	array_address (T (*p)[N]) : addr ((uintptr_t)p) {}
-	array_address (T const (*p)[N]) : addr ((uintptr_t)p) {}
-
-	uintptr_t	addr;
-};
 
 /*template<class Target, class Original>
 struct exchange_t
