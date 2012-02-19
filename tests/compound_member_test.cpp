@@ -1,5 +1,6 @@
 #include <pulmotor/ser.hpp>
 #include <pulmotor/stream.hpp>
+#include <pulmotor/util.hpp>
 #include <string>
 #include <cstdio>
 
@@ -10,7 +11,7 @@ struct A
 	float	value;
 	
 	template<class ArchiveT>
-	void blit (ArchiveT& ar, unsigned version) {
+	void serialize (ArchiveT& ar, unsigned version) {
 		ar | value;
 	}
 };
@@ -20,7 +21,7 @@ struct B
 	A	a;
 
 	template<class ArchiveT>
-	void blit (ArchiveT& ar, unsigned version) {
+	void serialize (ArchiveT& ar, unsigned version) {
 		ar | a;
 	}
 };
@@ -39,7 +40,7 @@ struct C
 	}
 
 	template<class ArchiveT>
-	void blit (ArchiveT& ar, unsigned version) {
+	void serialize(ArchiveT& ar, unsigned version) {
 		ar | pb | b;
 	}
 };
@@ -57,7 +58,7 @@ struct D
 	}
 
 	template<class ArchiveT>
-	void blit (ArchiveT& ar, unsigned version) {
+	void serialize (ArchiveT& ar, unsigned version) {
 		ar | pc | b | c | a;
 	}
 };
@@ -83,15 +84,14 @@ int main ()
 	blit_section bs;
 	
 	penis::D data;
-	blit_object (bs, data);
-
+	bs | data;
 	bs.dump_gathered ();
 
 	//
 	std::vector<unsigned char> buffer;
 	
 	{
-		pulmotor::util::blit_to_container (data, buffer, false);
+		pulmotor::util::blit_to_container (data, buffer, target_traits::current);
 
 		std::auto_ptr<basic_output_buffer> po = create_plain_output (pulmotor_native_path(".pulmotor"));
 		size_t written = 0;

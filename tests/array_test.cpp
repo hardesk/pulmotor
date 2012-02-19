@@ -8,7 +8,7 @@ struct A
 	X*		px;
 	
 	template<class ArchiveT>
-	void blit (ArchiveT& ar, unsigned version)
+	void serialize (ArchiveT& ar, unsigned version)
 	{
 		ar	| pulmotor::ptr (px, size);
 	}
@@ -19,7 +19,7 @@ struct X
 	int value;
 
 	template<class ArchiveT>
-	void blit (ArchiveT& ar, unsigned version)
+	void serialize (ArchiveT& ar, unsigned version)
 	{
 		ar	| value;
 	}	
@@ -30,7 +30,7 @@ struct B
 	X	xa[10];
 
 	template<class ArchiveT>
-	void blit (ArchiveT& ar, unsigned version)
+	void serialize (ArchiveT& ar, unsigned version)
 	{
 		ar	| xa;
 	}

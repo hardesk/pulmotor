@@ -18,7 +18,7 @@ struct C
 
 //namespace pulmotor {
 	template<class ArchiveT>
-	void serialize (ArchiveT& ar, B& obj) {
+	void serialize (ArchiveT& ar, B& obj, unsigned version) {
 		using pulmotor::ptr;
 		ar
 //			| obj.i

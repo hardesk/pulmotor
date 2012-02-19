@@ -43,7 +43,7 @@ int main ()
 	bs.dump_gathered ();
 
 	std::vector<unsigned char> buffer;
-	pulmotor::util::blit_to_container (b, buffer, true);
+	pulmotor::util::blit_to_container (b, buffer, target_traits::be_lp32);
 	
 	util::hexdump (&buffer[0], buffer.size ());
 	util::write_file ("pointer_test.pulmotor", &buffer[0], buffer.size ());
