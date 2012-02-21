@@ -43,8 +43,10 @@ struct use_version
 	enum { value = 1 };
 };*/
 #define PULMOTOR_ARCHIVE_NOVER(T) template<> struct track_version<T> { enum { value = 0 }; };
+	
+struct pulmotor_archive { };
 
-class input_archive
+class input_archive : public pulmotor_archive
 {
 	basic_input_buffer& buffer_;
 	
@@ -67,7 +69,7 @@ public:
 	}
 };
 
-class output_archive
+class output_archive : public pulmotor_archive
 {
 	basic_output_buffer& buffer_;
 	
@@ -89,6 +91,52 @@ public:
 		(void)err;
 	}
 };
+	
+typedef std::vector<u8> memory_archive_container_t;
+class memory_read_archive : public pulmotor_archive
+{
+	u8 const* data_;
+	size_t size_, current_;
+public:
+	enum { is_reading = 1, is_writing = 0 };
+	
+	memory_read_archive (u8 const* ptr, size_t s) : data_ (ptr), size_(s), current_(0) {}
+
+	template<class T>
+	void read_basic (T& data) {
+		if (size_ - current_ >= sizeof(data)) {
+			data = (T const*)(data_ + current_);
+			current_ += sizeof(data);
+		}
+	}
+	
+	void read_data (void* dst, size_t size) {
+		if (size_ - current_ >= size) {
+			memcpy (dst, data_ + current_, size);
+			current_ += size;
+		}
+	}
+};
+	
+class memory_write_archive : public pulmotor_archive
+{
+	memory_archive_container_t& cont_;	
+public:
+	enum { is_reading = 0, is_writing = 1 };
+	
+	memory_write_archive (memory_archive_container_t& c) : cont_ (c) {}
+	
+	template<class T>
+	void write_basic (T& data) {
+		cont_.insert (cont_.end (), (u8 const*)&data, (u8 const*)&data + sizeof(data));
+	}
+	
+	void write_data (void* src, size_t size) {
+		cont_.insert (cont_.end (), (u8 const*)src, (u8 const*)src + size);
+	}
+};
+
+
 
 // Forward to in-class function if a global one is not available
 template<class ArchiveT, class T>
@@ -144,14 +192,14 @@ template<class ArchiveT, class T>
 inline void dispatch_archive_impl (ArchiveT& ar, memblock_t<T> const& w, unsigned version, true_t, std::tr1::integral_constant<int, 2>)
 {
 	if (w.addr != 0 && w.count != 0)
-		ar.read_data ((void*)w.addr, w.count);
+		ar.read_data ((void*)w.addr, w.count * sizeof(T));
 }
 
 template<class ArchiveT, class T>
 inline void dispatch_archive_impl (ArchiveT& ar, memblock_t<T> const& w, unsigned version, false_t, std::tr1::integral_constant<int, 2>)
 {
 	if (w.addr != 0 && w.count != 0)
-		ar.write_data ((void*)w.addr, w.count);
+		ar.write_data ((void*)w.addr, w.count * sizeof(T));
 }
 	
 // T is an array
@@ -191,20 +239,37 @@ void archive (ArchiveT& ar, T const& obj)
 }
 
 template<class ArchiveT, class T>
-inline ArchiveT& operator& (ArchiveT& ar, T const& obj)
+inline typename pulmotor::enable_if<std::tr1::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
+operator& (ArchiveT& ar, T const& obj)
 {
 	archive (ar, obj);
    	return ar;
 }
+	
+template<class ArchiveT, class T>
+inline typename pulmotor::enable_if<std::tr1::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
+operator| (ArchiveT& ar, T const& obj)
+{
+	archive (ar, obj);
+	return ar;
+}
+
 
 #define PULMOTOR_ARCHIVE() template<class ArchiveT> void archive (ArchiveT& ar, unsigned version)
+#define PULMOTOR_ARCHIVE_SPLIT(T) template<class ArchiveT> inline void archive (ArchiveT& ar, unsigned version) {\
+	typedef std::tr1::integral_constant<bool, ArchiveT::is_reading> is_reading_t; \
+	archive_impl(ar, version, is_reading_t()); }
+#define PULMOTOR_ARCHIVE_READ() template<class ArchiveT> inline void archive_impl (ArchiveT& ar, unsigned version, pulmotor::true_t)
+#define PULMOTOR_ARCHIVE_WRITE() template<class ArchiveT> inline void archive_impl (ArchiveT& ar, unsigned version, pulmotor::false_t)
+	
+
 #define PULMOTOR_ARCHIVE_FREE(T) template<class ArchiveT> void archive (ArchiveT& ar, T& v, unsigned version)
 #define PULMOTOR_ARCHIVE_FREE_SPLIT(T) template<class ArchiveT> inline void archive (ArchiveT& ar, T& v, unsigned version) {\
 	typedef std::tr1::integral_constant<bool, ArchiveT::is_reading> is_reading_t; \
 	archive_impl(ar, v, version, is_reading_t()); }
 
-#define PULMOTOR_ARCHIVE_READ(T) template<class ArchiveT> inline void archive_impl (ArchiveT& ar, T& v, unsigned version, pulmotor::true_t)
-#define PULMOTOR_ARCHIVE_WRITE(T) template<class ArchiveT> inline void archive_impl (ArchiveT& ar, T& v, unsigned version, pulmotor::false_t)
+#define PULMOTOR_ARCHIVE_FREE_READ(T) template<class ArchiveT> inline void archive_impl (ArchiveT& ar, T& v, unsigned version, pulmotor::true_t)
+#define PULMOTOR_ARCHIVE_FREE_WRITE(T) template<class ArchiveT> inline void archive_impl (ArchiveT& ar, T& v, unsigned version, pulmotor::false_t)
 
 }
 
