@@ -3,6 +3,7 @@
 
 #include "pulmotor_config.hpp"
 #include "pulmotor_types.hpp"
+#include <tr1/type_traits>
 
 //namespace std {
 //	template<class T> class allocator;
@@ -14,19 +15,33 @@ namespace pulmotor
 
 template<class T> struct version;
 template<class T> struct track_version;
+
+struct pulmotor_archive;
 //template<class T> struct ref_wrapper;
 //template<class T>
 //ref_wrapper<T> ref (T* t);
 
 template<class T> struct ptr_address;
-template<class T> inline ptr_address<T> ptr (T*& p, size_t cnt);
-template<class T> inline ptr_address<T> ptr (T const* const& p, size_t cnt);
+template<class T> inline ptr_address<typename std::tr1::remove_cv<T>::type> ptr (T*& p, size_t cnt);
+//template<class T> inline ptr_address<T> ptr (T const* const& p, size_t cnt);
 
 class access;
 struct blit_section;
 
 template<class ArchiveT, class ObjectT> inline ArchiveT& blit (ArchiveT& ar, ObjectT& obj);
-template<class ArchiveT, class ObjectT> inline ArchiveT& operator | (ArchiveT& ar, ObjectT const& obj);
+
+template<class ObjectT>
+inline blit_section& operator | (blit_section& ar, ObjectT const& obj);
+template<class ObjectT>
+inline blit_section& operator & (blit_section& ar, ObjectT const& obj);
+
+template<class ArchiveT, class T>
+	inline typename pulmotor::enable_if<std::tr1::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
+	operator& (ArchiveT& ar, T const& obj);
+
+template<class ArchiveT, class T>
+	inline typename pulmotor::enable_if<std::tr1::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
+	operator| (ArchiveT& ar, T const& obj);
 
 namespace util
 {

@@ -38,6 +38,15 @@ namespace pulmotor
 		static target_traits const le_lp64;
 		static target_traits const be_lp64;
 	};
+	
+	template<bool Condition, class T>
+	struct enable_if {};
+	
+	template<class T>
+	struct enable_if<true, T>
+	{
+		typedef T type;
+	};
 
 	template<class T> struct version {
 		static int const value = 0;
@@ -61,6 +70,7 @@ namespace pulmotor
 	{
 		ptr_address (T* const* p, size_t cnt) : addr ((uintptr_t)p), count (cnt) {}
 		ptr_address (T const* const* p, size_t cnt) : addr ((uintptr_t)p), count (cnt) {}
+		ptr_address (T const** p, size_t cnt) : addr ((uintptr_t)p), count (cnt) {}
 
 		uintptr_t	addr;
 		size_t		count;
