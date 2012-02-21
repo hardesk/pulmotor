@@ -43,6 +43,8 @@
 
 namespace pulmotor {
 
+struct blit_section;
+
 	enum category {
 		k_integral,
 		k_pointer,
@@ -214,8 +216,18 @@ struct exchange_t
 	Original	original;
 };*/
 
-template<class T> inline ptr_address<T> ptr (T*& p, size_t cnt = 1) { return ptr_address<T> ((T**)pulmotor_addressof(p), cnt); }
-template<class T> inline ptr_address<T> ptr (T const* const& p, size_t cnt = 1) { return ptr_address<T> ((T const* const*)pulmotor_addressof(p), cnt); }
+template<class T>
+inline ptr_address<typename std::tr1::remove_cv<T>::type> ptr (T*& p, size_t cnt = 1)
+{
+	typedef typename std::tr1::remove_cv<T>::type clean_t;
+	return ptr_address<clean_t> ((clean_t**)pulmotor_addressof(p), cnt);
+}
+/*template<class T>
+inline ptr_address<typename std::tr1::remove_cv<T>::type> ptr (T const* const& p, size_t cnt = 1)
+{
+	typedef typename std::tr1::remove_cv<T>::type clean_t;
+	return ptr_address<clean_t> ((clean_t* const*)pulmotor_addressof(p), cnt);
+}*/
 
 //template<class T> inline ptr_address<T> ptr (T (*p)[], size_t cnt) { return ptr_address<T> (p, cnt); }
 //template<class T> inline ptr_address<T> ptr (T const (*p)[], size_t cnt = 1) { return ptr_address<T> (p, cnt); }
@@ -280,8 +292,8 @@ struct type_category
 class access
 {
 public:
-	template<class ArchiveT, class T>
-	static void call_member (ArchiveT& ar, T const& obj, unsigned version)
+	template<class T>
+	static void call_member (blit_section& ar, T const& obj, unsigned version)
 	{
 		const_cast<T&> (obj).serialize (ar, version);
 	}
@@ -558,7 +570,7 @@ struct blit_section
 
 	// pass a pointer to an object to check if that object is already registered. pointer passed can point to
 	// the middle of an object.
-	bool has_registered (void* p)
+	bool has_registered (void const* p)
 	{
 		object_ptr_t::iterator it = objects_.get<ptr_tag> ().lower_bound ((uintptr_t)p, objectptr_less_addr());
 		if (it != objects_.get<ptr_tag> ().end ())
@@ -1212,15 +1224,15 @@ struct factory_creation
 	CreateDataT	data_;
 };*/
 
-template<class ArchiveT, class ObjectT>
-inline void serialize (ArchiveT& ar, ObjectT& obj, unsigned long version)
+template<class ObjectT>
+inline void serialize (blit_section& ar, ObjectT& obj, unsigned long version)
 {
-	access::call_member (static_cast<ArchiveT&> (ar), obj, version);
+	access::call_member (static_cast<blit_section&> (ar), obj, version);
 }
 
 // a structure
-template<class ArchiveT, class ObjectT>
-inline void blit_impl (ArchiveT& ar, ObjectT& obj, unsigned version, compound_tag)
+template<class ObjectT>
+inline void blit_impl (blit_section& ar, ObjectT& obj, unsigned version, compound_tag)
 {
 	gather_logf_ident (0, "> by-value compound, type: %s\n",
 		shorten_name(typeid(obj).name()).c_str());
@@ -1238,8 +1250,8 @@ inline void blit_impl (ArchiveT& ar, ObjectT& obj, unsigned version, compound_ta
 	ar.end_area (ci, (uintptr_t)pulmotor_addressof (obj));
 }
 
-template<class ArchiveT, class ObjectT>
-inline void blit_impl (ArchiveT& ar, ObjectT& obj, unsigned version, primitive_tag)
+template<class ObjectT>
+inline void blit_impl (blit_section& ar, ObjectT& obj, unsigned version, primitive_tag)
 {
 	gather_logf_ident (0, "> primitive %s\n", shorten_name(typeid(obj).name()).c_str());
 	uintptr_t oa = (uintptr_t)pulmotor_addressof (obj); 
@@ -1252,8 +1264,8 @@ inline void blit_impl (ArchiveT& ar, ObjectT& obj, unsigned version, primitive_t
 }
 
 // true, array of primitives
-template<class ArchiveT, class ObjectT>
-inline void blit_array_helper (ArchiveT& ar, ObjectT* obj, size_t array_size, unsigned version, boost::mpl::bool_<true>)
+/*template<class ObjectT>
+inline void blit_array_helper (blit_section& ar, ObjectT* obj, size_t array_size, unsigned version, boost::mpl::bool_<true>)
 {
 	// do nothing, or copy memory block
 	gather_logf_ident (1, "> blit-array  (x%d), type: %s\n",
@@ -1262,11 +1274,11 @@ inline void blit_array_helper (ArchiveT& ar, ObjectT* obj, size_t array_size, un
 		ar.register_member ( (uintptr_t)pulmotor_addressof (obj), sizeof (*obj), array_size, type_category<ObjectT>::value);
 
 	gather_logf_ident (-1, 0);
-}
+}*/
 
 // false, array of classes or pointers
-template<class ArchiveT, class ObjectT>
-inline void blit_array_helper (ArchiveT& ar, ObjectT* obj, size_t array_size, unsigned version, boost::mpl::bool_<false>)
+template<class ObjectT>
+inline void blit_array_helper (blit_section& ar, ObjectT* obj, size_t array_size, unsigned version, boost::mpl::bool_<false>)
 {
 	gather_logf_ident (1, "> blit-array (x%d), type: %s\n",
 		array_size, shorten_name(typeid(*obj).name()).c_str());
@@ -1277,8 +1289,8 @@ inline void blit_array_helper (ArchiveT& ar, ObjectT* obj, size_t array_size, un
 	gather_logf_ident (-1, 0);
 }
 
-template<class ArchiveT, class ObjectT>
-inline void blit_impl (ArchiveT& ar, ObjectT& obj, unsigned version, array_tag)
+template<class ObjectT>
+inline void blit_impl (blit_section& ar, ObjectT& obj, unsigned version, array_tag)
 {
 	//gather_logf ("ARRAY ObjectT: %s\n", util::dm(typeid(ObjectT).name()).c_str());
 	ObjectT* aa = (ObjectT*) pulmotor_addressof (obj);
@@ -1302,8 +1314,8 @@ inline void blit_impl (ArchiveT& ar, ObjectT& obj, unsigned version, array_tag)
 	gather_logf_ident (-1, 0);
 }
 
-template<class ArchiveT, class ObjectT>
-inline void blit_impl (ArchiveT& ar, ptr_address<ObjectT> objaddr, unsigned version, ptr_address_tag)
+template<class ObjectT>
+inline void blit_impl (blit_section& ar, ptr_address<ObjectT> objaddr, unsigned version, ptr_address_tag)
 {
 	ObjectT** oa = reinterpret_cast<ObjectT**> (objaddr.addr);
 	
@@ -1355,8 +1367,8 @@ inline void blit_impl (ArchiveT& ar, ptr_address<ObjectT> objaddr, unsigned vers
 	gather_logf_ident (-1, 0);
 }
 
-template<class ArchiveT, class ObjectT>
-inline void blit_impl (ArchiveT& ar, ObjectT& obj, unsigned version, pointer_tag)
+template<class ObjectT>
+inline void blit_impl (blit_section& ar, ObjectT& obj, unsigned version, pointer_tag)
 {
 	ObjectT* po = (ObjectT*)pulmotor_addressof(obj);
 	ptr_address<typename remove_pointer<ObjectT>::type> adr(po, 1);
@@ -1364,8 +1376,8 @@ inline void blit_impl (ArchiveT& ar, ObjectT& obj, unsigned version, pointer_tag
 }
 
 // examine obj and forward serialization to the appropriate function by selecting the right tag
-template<class ArchiveT, class ObjectT>
-inline void blit_redirect (ArchiveT& ar, ObjectT& obj, unsigned flags_version)
+template<class ObjectT>
+inline void blit_redirect (blit_section& ar, ObjectT& obj, unsigned flags_version)
 {
 	using boost::mpl::identity;
 	using boost::mpl::eval_if;
@@ -1395,22 +1407,22 @@ inline void blit_redirect (ArchiveT& ar, ObjectT& obj, unsigned flags_version)
 	blit_impl (ar, obj, flags_version, tag_t());
 }
 
-template<class ArchiveT, class ObjectT>
-inline ArchiveT& blit (ArchiveT& ar, ObjectT& obj)
+template<class ObjectT>
+inline blit_section& blit (blit_section& ar, ObjectT& obj)
 {
 	unsigned const ver = version<typename clean<ObjectT>::type>::value;
 	blit_redirect (ar, obj, ver);
 	return ar;
 }
 
-template<class ArchiveT, class ObjectT>
-inline ArchiveT& operator & (ArchiveT& ar, ObjectT const& obj)
+template<class ObjectT>
+inline blit_section& operator & (blit_section& ar, ObjectT const& obj)
 {
 	return blit (ar, const_cast<ObjectT&>(obj));
 }
 
-template<class ArchiveT, class ObjectT>
-inline ArchiveT& operator | (ArchiveT& ar, ObjectT const& obj)
+template<class ObjectT>
+inline blit_section& operator | (blit_section& ar, ObjectT const& obj)
 {
 	return blit (ar, const_cast<ObjectT&>(obj));
 }
