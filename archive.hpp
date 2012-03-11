@@ -117,7 +117,7 @@ public:
 	template<class T>
 	void read_basic (T& data) {
 		if (size_ - current_ >= sizeof(data)) {
-			data = (T const*)(data_ + current_);
+			data = *(T const*)(data_ + current_);
 			current_ += sizeof(data);
 		}
 	}
@@ -200,7 +200,7 @@ inline void redirect_archive (ArchiveT& ar, T const& obj, unsigned version)
 
 // T is a class
 template<class ArchiveT, class T>
-inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version, true_t, true_t)
+inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version, true_t, std::tr1::integral_constant<int, 1>)
 {
 	u8 file_version = version;
 	if (track_version<typename std::tr1::remove_cv<T>::type>::value)
@@ -209,7 +209,7 @@ inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version,
 }
 
 template<class ArchiveT, class T>
-inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version, false_t, true_t)
+inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version, false_t, std::tr1::integral_constant<int, 1>)
 {
 	u8 file_version = version;
 	if (track_version<typename std::tr1::remove_cv<T>::type>::value)
@@ -219,13 +219,13 @@ inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version,
 
 // T is a primitive
 template<class ArchiveT, class T>
-inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version, true_t, false_t)
+inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version, true_t, std::tr1::integral_constant<int, 0>)
 {
-	ar.read_basic (obj);
+	ar.read_basic (const_cast<T&> (obj));
 }
 
 template<class ArchiveT, class T>
-inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version, false_t, false_t)
+inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version, false_t, std::tr1::integral_constant<int, 0>)
 {
 	ar.write_basic (obj);
 }
@@ -259,6 +259,15 @@ inline void dispatch_archive_impl (ArchiveT& ar, T const& v, unsigned version, A
 {
 	char************************** ______SERIALIZING_POINTER_IS_NOT_SUPPORTED______[std::tr1::is_pointer<T>::value ? -1 : 0];
 }
+	
+// T is enum
+//template<class ArchiveT, class T>
+//inline void dispatch_archive_impl (ArchiveT& ar, T const& v, unsigned version, AnyT, std::tr1::integral_constant<int, 5>)
+//{
+//	if (w.addr != 0 && w.count != 0)
+//		ar.read_data ((void*)w.addr, w.count * sizeof(T));
+//}
+	
 
 template<class ArchiveT, class T>
 void archive (ArchiveT& ar, T const& obj)
@@ -268,9 +277,11 @@ void archive (ArchiveT& ar, T const& obj)
 	typedef
 		typename boost::mpl::if_< std::tr1::is_array<clean_t>, std::tr1::integral_constant<int, 3>,
 			typename boost::mpl::if_< std::tr1::is_pointer<clean_t>, std::tr1::integral_constant<int, 4>,
-	   			typename boost::mpl::if_< std::tr1::is_fundamental<clean_t>, false_t,
-					typename boost::mpl::if_< is_memblock_t<clean_t>, std::tr1::integral_constant<int, 2>,
-					true_t>::type
+				typename boost::mpl::if_< std::tr1::is_enum<clean_t>, std::tr1::integral_constant<int, 0>,
+		   			typename boost::mpl::if_< std::tr1::is_fundamental<clean_t>, std::tr1::integral_constant<int, 0>,
+						typename boost::mpl::if_< is_memblock_t<clean_t>, std::tr1::integral_constant<int, 2>,
+						std::tr1::integral_constant<int, 1> >::type
+					>::type
 				>::type
 			>::type
 		>::type object_type_t;
