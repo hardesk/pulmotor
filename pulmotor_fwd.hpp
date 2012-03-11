@@ -22,7 +22,7 @@ struct pulmotor_archive;
 //ref_wrapper<T> ref (T* t);
 
 template<class T> struct ptr_address;
-template<class T> inline ptr_address<typename std::tr1::remove_cv<T>::type> ptr (T*& p, size_t cnt);
+template<class T> inline ptr_address<typename std::tr1::remove_cv<T>::type> ptr (T*& p, size_t cnt = 1);
 //template<class T> inline ptr_address<T> ptr (T const* const& p, size_t cnt);
 
 class access;

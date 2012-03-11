@@ -30,6 +30,18 @@ struct is_memblock_t { enum { value = false }; };
 template<class T>
 struct is_memblock_t<memblock_t<T> > { enum { value = true }; };
 
+	
+template<class ArchiveT, class T>
+struct has_archive_fun
+{
+	template<class U, class Ar, void (U::*)(Ar&, unsigned)> struct tester {};
+
+	template<class U> static char test(tester<U, ArchiveT, &U::archive> const*);
+	template<class U> static long test(...);
+
+	static const int value = sizeof(test<T>(0)) == sizeof(char);
+};
+
 /*template<class T>
 struct version
 {
@@ -137,12 +149,46 @@ public:
 };
 
 
+typedef std::tr1::true_type true_t;
+typedef std::tr1::false_type false_t;
+
 
 // Forward to in-class function if a global one is not available
+struct ______CLASS_DOES_NOT_HAVE_AN_ARCHIVE_FUNCTION_OR_MEMBER____ {};
+
 template<class ArchiveT, class T>
-void archive (ArchiveT& ar, T& obj, unsigned long version)
+inline void has_archive_check_impl (T& obj, true_t)
+{}
+
+template<class ArchiveT, class T>
+inline void has_archive_check_impl (T& obj, false_t)
 {
-	obj.archive (ar, version);
+	typedef std::tr1::integral_constant<bool, has_archive_fun<ArchiveT, T>::value> has_archive_t;
+	typename boost::mpl::if_<has_archive_t, char, std::pair<______CLASS_DOES_NOT_HAVE_AN_ARCHIVE_FUNCTION_OR_MEMBER____**********************************, T> >::type* test = "";
+	(void)test;
+}
+
+template<class ArchiveT, class T>
+inline void call_archive_member_impl (ArchiveT& ar, T& obj, unsigned long version, false_t)
+{
+	typedef std::tr1::integral_constant<bool, has_archive_fun<ArchiveT, T>::value> has_archive_t;
+	typename boost::mpl::if_<has_archive_t, char, std::pair<______CLASS_DOES_NOT_HAVE_AN_ARCHIVE_FUNCTION_OR_MEMBER____**********************************, T> >::type* test = "";
+	(void)test;
+}
+
+template<class ArchiveT, class T>
+inline void call_archive_member_impl (ArchiveT& ar, T& obj, unsigned long version, true_t)
+{
+	access::call_archive (ar, obj, version);
+}
+
+template<class ArchiveT, class T>
+inline void archive (ArchiveT& ar, T& obj, unsigned long version)
+{
+	typedef std::tr1::integral_constant<bool, has_archive_fun<ArchiveT, T>::value> has_archive_t;
+	//has_archive_check_impl<ArchiveT> (obj, has_archive_t());
+	access::call_archive (ar, obj, version);
+	call_archive_member_impl (ar, obj, version, has_archive_t());
 }
 	
 template<class ArchiveT, class T>
@@ -151,9 +197,6 @@ inline void redirect_archive (ArchiveT& ar, T const& obj, unsigned version)
 	typedef typename std::tr1::remove_cv<T>::type clean_t;
 	archive (ar, *const_cast<clean_t*>(&obj), version);
 }
-
-typedef std::tr1::true_type true_t;
-typedef std::tr1::false_type false_t;
 
 // T is a class
 template<class ArchiveT, class T>

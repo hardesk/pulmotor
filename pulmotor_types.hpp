@@ -23,6 +23,8 @@ namespace pulmotor
 #endif
 	
 	enum { header_size = 8 };
+
+	class blit_section;
 	
 	struct target_traits
 	{
@@ -37,6 +39,22 @@ namespace pulmotor
 		
 		static target_traits const le_lp64;
 		static target_traits const be_lp64;
+	};
+
+	class access
+	{
+	public:
+		template<class ArchiveT, class T>
+		static void call_archive (ArchiveT& ar, T const& obj, unsigned version)
+		{
+			const_cast<T&> (obj).archive (ar, version);
+		}
+
+		template<class T>
+		static void call_member (blit_section& ar, T const& obj, unsigned version)
+		{
+			const_cast<T&> (obj).serialize (ar, version);
+		}
 	};
 	
 	template<bool Condition, class T>

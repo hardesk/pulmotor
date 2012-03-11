@@ -3,6 +3,7 @@
 
 #include "pulmotor_config.hpp"
 #include "pulmotor_types.hpp"
+#include "pulmotor_fwd.hpp"
 
 #include <tr1/type_traits>
 //#include <boost/type_traits/extent.hpp>
@@ -217,7 +218,7 @@ struct exchange_t
 };*/
 
 template<class T>
-inline ptr_address<typename std::tr1::remove_cv<T>::type> ptr (T*& p, size_t cnt = 1)
+inline ptr_address<typename std::tr1::remove_cv<T>::type> ptr (T*& p, size_t cnt)
 {
 	typedef typename std::tr1::remove_cv<T>::type clean_t;
 	return ptr_address<clean_t> ((clean_t**)pulmotor_addressof(p), cnt);
@@ -287,16 +288,6 @@ struct type_category
 		: is_pointer<T>::value			? k_pointer
 		: k_other
 		;
-};
-
-class access
-{
-public:
-	template<class T>
-	static void call_member (blit_section& ar, T const& obj, unsigned version)
-	{
-		const_cast<T&> (obj).serialize (ar, version);
-	}
 };
 
 struct blit_section
@@ -1480,7 +1471,7 @@ inline size_t write_file (pp_char const* name, u8 const* ptr, size_t size)
 }
 
 template<class T>
-size_t write_file (pp_char const* name, T& root, target_traits const& tt, size_t sectionalign = 16)
+size_t write_file (pp_char const* name, T& root, target_traits const& tt, size_t sectionalign)
 {
 	blit_section bs;
 
