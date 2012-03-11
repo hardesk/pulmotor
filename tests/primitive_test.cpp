@@ -27,7 +27,7 @@ struct C
 
 struct B
 {
-	char* s;
+	char const* s;
 	int x;
 	//A a;
 	A aa[2];
@@ -43,7 +43,7 @@ struct B
 
 struct P
 {
-	char* c;
+	char const* c;
 	int* x;
 	A* a;
 	A* aa[2];

@@ -1,26 +1,29 @@
+#include <pulmotor/pulmotor_fwd.hpp>
 #include <pulmotor/archive.hpp>
 #include <pulmotor/stream.hpp>
+#include <pulmotor/archive_std.hpp>
+#include <pulmotor/ser.hpp>
 
+#include <list>
+#include <vector>
+#include <iostream>
 
 //template<class T> struct track_version {};
 
-//PULMOTOR_ARCHIVE_NOVER(std::string);
-namespace pulmotor {
+struct MyCont
+{
+	int value;
+};
 
-PULMOTOR_ARCHIVE_FREE_SPLIT(std::string)
-PULMOTOR_ARCHIVE_READ(std::string)
+template<class ArchiveT>
+void archive (ArchiveT& ar, MyCont& v, unsigned version)
 {
-	pulmotor::u32 size = 0;
-	ar & size;
-	v.resize (size);
-	ar & pulmotor::memblock (v.c_str(), size);
-}
-PULMOTOR_ARCHIVE_WRITE(std::string)
-{
-	ar & (pulmotor::u32)v.size ();
-	ar & pulmotor::memblock (v.c_str(), v.size ());
+	ar & v.value;
 }
 
+void serialize (pulmotor::blit_section& ar, MyCont& v, unsigned version)
+{
+	ar | v.value;
 }
 
 struct A
@@ -28,6 +31,9 @@ struct A
 	int x;
 	std::string name;
 	std::string m[3];
+	std::vector<int> vi;
+	std::vector<std::string> vs;
+	std::vector<std::vector<MyCont> > vvm;
 
 	A(bool doInit)
    	{
@@ -38,16 +44,45 @@ struct A
 			m[0] = "member 1";
 			m[1] = "member 2";
 			m[2] = "member 3";
+
+			vi.push_back (0x11223344);
+			vi.push_back (0x55667788);
+
+			vs.push_back ("one");
+			vs.push_back ("two");
+			vs.push_back ("three");
+			
+			vvm.push_back (std::vector<MyCont>());
+			MyCont mc1 = { 100 };
+			vvm.back().push_back (mc1);
 		}
 	}
 	PULMOTOR_ARCHIVE()
 	{
-		ar & x & name & m;
+		ar & x & name & m & vi & vs & vvm;
 	}
 };
 
+void serialize (pulmotor::blit_section& ar, A& a, unsigned version)
+{
+	ar | a;
+}
+
+
+struct Moo0 { };
+struct Moo1 { void archive (); };
+struct Moo2 { void archive (pulmotor::output_archive& ar, unsigned version); };
+struct Moo3 { template<class ArchiveT> void archive (ArchiveT& ar, unsigned version); };
+
 int main ()
 {
+	using namespace pulmotor;
+
+	std::cout << "has_archive_func<output_archive, Moo0> = " << has_archive_fun<pulmotor::output_archive,Moo0>::value << std::endl;
+	std::cout << "has_archive_func<output_archive, Moo1> = " << has_archive_fun<pulmotor::output_archive,Moo1>::value << std::endl;
+	std::cout << "has_archive_func<output_archive, Moo2> = " << has_archive_fun<pulmotor::output_archive,Moo2>::value << std::endl;
+	std::cout << "has_archive_func<output_archive, Moo3> = " << has_archive_fun<pulmotor::output_archive,Moo3>::value << std::endl;
+
 	std::auto_ptr<pulmotor::basic_output_buffer> oab = pulmotor::create_plain_output ("test.o.1");
 	
 	{
@@ -70,6 +105,8 @@ int main ()
 		assert (a.m[0] == a1.m[0]);
 		assert (a.m[1] == a1.m[1]);
 		assert (a.m[2] == a1.m[2]);
+		assert (a.vi == a1.vi);
+		assert (a.vs == a1.vs);
 	}
 
 	return 1;
