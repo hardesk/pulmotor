@@ -167,7 +167,7 @@ template<class ArchiveT, class T>
 inline void has_archive_check_impl (T& obj, false_t)
 {
 	typedef std::tr1::integral_constant<bool, has_archive_fun<ArchiveT, T>::value> has_archive_t;
-	typename boost::mpl::if_<has_archive_t, char, std::pair<______CLASS_DOES_NOT_HAVE_AN_ARCHIVE_FUNCTION_OR_MEMBER____**********************************, T> >::type* test = "";
+	typename boost::mpl::if_<has_archive_t, char, std::pair<T, ______CLASS_DOES_NOT_HAVE_AN_ARCHIVE_FUNCTION_OR_MEMBER____****************> >::type* test = "";
 	(void)test;
 }
 
@@ -175,7 +175,7 @@ template<class ArchiveT, class T>
 inline void call_archive_member_impl (ArchiveT& ar, T& obj, unsigned long version, false_t)
 {
 	typedef std::tr1::integral_constant<bool, has_archive_fun<ArchiveT, T>::value> has_archive_t;
-	typename boost::mpl::if_<has_archive_t, char, std::pair<______CLASS_DOES_NOT_HAVE_AN_ARCHIVE_FUNCTION_OR_MEMBER____**********************************, T> >::type* test = "";
+	typename boost::mpl::if_<has_archive_t, char, std::pair<T, ______CLASS_DOES_NOT_HAVE_AN_ARCHIVE_FUNCTION_OR_MEMBER____****************> >::type* test = "";
 	(void)test;
 }
 
