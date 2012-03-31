@@ -80,6 +80,7 @@ public:
 	bool good () const { return data_ != 0; }
 
 	T const& ref () const { return *reinterpret_cast<T const*> (pulmotor::util::get_root_data (data_)); }	
+	T const* operator-> () const { return reinterpret_cast<T const*> (pulmotor::util::get_root_data (data_)); }
 };
 
 }
