@@ -29,8 +29,13 @@ void serialize (pulmotor::blit_section& ar, MyCont& v, unsigned version)
 struct A
 {
 	int x;
+	float ff;
+	char c;
+	float ffa[2];
+
 	std::string name;
 	std::string m[3];
+
 	std::vector<int> vi;
 	std::vector<std::string> vs;
 	std::vector<std::vector<MyCont> > vvm;
@@ -39,6 +44,10 @@ struct A
    	{
 		if (doInit) {
 			x = 0x00112233;
+			c = 'X';
+			ff = 2.0f;
+			ffa[0] = 20.0f;
+			ffa[1] = 40.0f;
 			name = "Sandy Black";
 
 			m[0] = "member 1";
@@ -59,7 +68,7 @@ struct A
 	}
 	PULMOTOR_ARCHIVE()
 	{
-		ar & x & name & m & vi & vs & vvm;
+		ar & x & ff & c & ffa & name & m & vi & vs & vvm;
 	}
 };
 
@@ -68,20 +77,9 @@ void serialize (pulmotor::blit_section& ar, A& a, unsigned version)
 	ar | a;
 }
 
-
-struct Moo0 { };
-struct Moo1 { void archive (); };
-struct Moo2 { void archive (pulmotor::output_archive& ar, unsigned version); };
-struct Moo3 { template<class ArchiveT> void archive (ArchiveT& ar, unsigned version); };
-
 int main ()
 {
 	using namespace pulmotor;
-
-	std::cout << "has_archive_func<output_archive, Moo0> = " << has_archive_fun<pulmotor::output_archive,Moo0>::value << std::endl;
-	std::cout << "has_archive_func<output_archive, Moo1> = " << has_archive_fun<pulmotor::output_archive,Moo1>::value << std::endl;
-	std::cout << "has_archive_func<output_archive, Moo2> = " << has_archive_fun<pulmotor::output_archive,Moo2>::value << std::endl;
-	std::cout << "has_archive_func<output_archive, Moo3> = " << has_archive_fun<pulmotor::output_archive,Moo3>::value << std::endl;
 
 	std::auto_ptr<pulmotor::basic_output_buffer> oab = pulmotor::create_plain_output ("test.o.1");
 	
@@ -97,10 +95,16 @@ int main ()
 	{
 		pulmotor::input_archive ia (*iab);
 		A a (false);
+		memset (&a, 0xff, (char*)&a.name - (char*)&a);
 		archive (ia, a);
 
 		A a1 (true);
+
 		assert (a.x == a1.x);
+		assert (a.ff == a1.ff);
+		assert (a.c == a1.c);
+		assert (a.ffa[0] == a1.ffa[0]);
+		assert (a.ffa[1] == a1.ffa[1]);
 		assert (a.name == a1.name);
 		assert (a.m[0] == a1.m[0]);
 		assert (a.m[1] == a1.m[1]);
