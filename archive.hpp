@@ -47,14 +47,17 @@ struct version
 {
 	enum { value = 0 };
 };*/
-#define PULMOTOR_ARCHIVE_VER(T, v) template<> struct version<T> { enum { value = v }; };
+#define PULMOTOR_ARCHIVE_VER(T, v) template<> struct version<T> { enum { value = v }; }
 
 /*template<class T>
 struct use_version
 {
 	enum { value = 1 };
 };*/
-#define PULMOTOR_ARCHIVE_NOVER(T) template<> struct track_version<T> { enum { value = 0 }; };
+#define PULMOTOR_ARCHIVE_NOVER(T) template<> struct track_version<T> { enum { value = 0 }; }
+#define PULMOTOR_ARCHIVE_NOVER_TEMPLATE1(T) template<class TT> struct track_version< T < TT > > { enum { value = 0 }; }
+#define PULMOTOR_ARCHIVE_NOVER_TEMPLATE2(T) template<class TT1, class TT2> struct track_version< T < TT1, TT2 > > { enum { value = 0 }; }
+	
 	
 struct pulmotor_archive { };
 
@@ -187,7 +190,7 @@ inline void archive (ArchiveT& ar, T& obj, unsigned long version)
 {
 	typedef std::tr1::integral_constant<bool, has_archive_fun<ArchiveT, T>::value> has_archive_t;
 	//has_archive_check_impl<ArchiveT> (obj, has_archive_t());
-	access::call_archive (ar, obj, version);
+	//access::call_archive (ar, obj, version);
 	call_archive_member_impl (ar, obj, version, has_archive_t());
 }
 	
