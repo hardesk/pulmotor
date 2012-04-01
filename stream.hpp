@@ -124,6 +124,9 @@ namespace pulmotor
 		virtual ~cfile_input_buffer();
 
 		virtual error_id read (void* dest, size_t count, size_t* was_read);
+		bool good () const {
+			return file_ != 0;
+		}
 
 	private:
 #ifdef _DEBUG
