@@ -64,22 +64,35 @@ struct pulmotor_archive { };
 class input_archive : public pulmotor_archive
 {
 	basic_input_buffer& buffer_;
+	size_t offset_;
 	
 public:
-	input_archive (basic_input_buffer& buf) : buffer_ (buf) {}
+	input_archive (basic_input_buffer& buf) : buffer_ (buf), offset_(0) {}
 
 	enum { is_reading = 1, is_writing = 0 };
 	
-	template<class T>
+	template<int Align, class T>
 	void read_basic (T& data)
 	{
-		error_id err = buffer_.read ((void*)&data, sizeof(data), NULL);
+		int toRead = sizeof(data);
+		if (Align != 1)
+		{
+			char skipBuf[8];
+			size_t correctOffset = util::align<Align> (offset_);
+			if (int skip = correctOffset - offset_) {
+				buffer_.read ((void*)skipBuf, skip, NULL);
+				offset_ += skip;
+			}
+		}
+		error_id err = buffer_.read ((void*)&data, toRead, NULL);
+		offset_ += toRead;
 		(void)err;
 	}
 
 	void read_data (void* dest, size_t size)
 	{
 		error_id err = buffer_.read (dest, size, NULL);
+		offset_ += size;
 		(void)err;
 	}
 };
@@ -87,22 +100,33 @@ public:
 class output_archive : public pulmotor_archive
 {
 	basic_output_buffer& buffer_;
+	size_t written_;
 	
 public:
-	output_archive (basic_output_buffer& buf) : buffer_ (buf) {}
+	output_archive (basic_output_buffer& buf) : buffer_ (buf), written_ (0) {}
 	
 	enum { is_reading = 0, is_writing = 1 };
 
-	template<class T>
+	template<int Align, class T>
 	void write_basic (T& data)
 	{
+		if (Align != 1) {
+			char alignBuf[7] = { 0,0,0,0, 0,0,0 };
+			size_t correctOffset = util::align<Align> (written_);
+			if (int fill = correctOffset - written_) {
+				buffer_.write ((void*)alignBuf, fill, NULL);
+				written_ += fill;
+			}
+		}
 		error_id err = buffer_.write (&data, sizeof(data), NULL);
+		written_ += sizeof (data);
 		(void)err;
 	}
 
 	void write_data (void* src, size_t size)
 	{
 		error_id err = buffer_.write (src, size, NULL);
+		written_ += size;
 		(void)err;
 	}
 };
@@ -117,8 +141,11 @@ public:
 	
 	memory_read_archive (u8 const* ptr, size_t s) : data_ (ptr), size_(s), current_(0) {}
 
-	template<class T>
+	template<int Align, class T>
 	void read_basic (T& data) {
+		if (Align != 1)
+			current_ = util::align<Align>(current_);
+			
 		if (size_ - current_ >= sizeof(data)) {
 			data = *(T const*)(data_ + current_);
 			current_ += sizeof(data);
@@ -141,8 +168,13 @@ public:
 	
 	memory_write_archive (memory_archive_container_t& c) : cont_ (c) {}
 	
-	template<class T>
+	template<int Align, class T>
 	void write_basic (T& data) {
+		if (Align != 1) {
+			size_t aligned = util::align<Align> (cont_.size ());
+			if (int fill = aligned - cont_.size ())
+				cont_.insert(cont_.end (), fill, 0);
+		}
 		cont_.insert (cont_.end (), (u8 const*)&data, (u8 const*)&data + sizeof(data));
 	}
 	
@@ -207,7 +239,7 @@ inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version,
 {
 	u8 file_version = version;
 	if (track_version<typename std::tr1::remove_cv<T>::type>::value)
-		ar.read_basic (file_version);
+		ar.template read_basic<1> (file_version);
 	redirect_archive (ar, obj, file_version);
 }
 
@@ -216,7 +248,7 @@ inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version,
 {
 	u8 file_version = version;
 	if (track_version<typename std::tr1::remove_cv<T>::type>::value)
-		ar.write_basic (file_version);
+		ar.template write_basic<1> (file_version);
 	redirect_archive (ar, obj, version);
 }
 
@@ -224,13 +256,15 @@ inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version,
 template<class ArchiveT, class T>
 inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version, true_t, std::tr1::integral_constant<int, 0>)
 {
-	ar.read_basic (const_cast<T&> (obj));
+	const int Align = std::tr1::is_floating_point<T>::value ? sizeof(T) : 1;
+	ar.template read_basic<Align> (const_cast<T&> (obj));
 }
 
 template<class ArchiveT, class T>
 inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version, false_t, std::tr1::integral_constant<int, 0>)
 {
-	ar.write_basic (obj);
+	const int Align = std::tr1::is_floating_point<T>::value ? sizeof(T) : 1;
+	ar.template write_basic<Align> (obj);
 }
 	
 // T is a wrapped pointer
@@ -313,11 +347,11 @@ operator| (ArchiveT& ar, T const& obj)
 
 
 #define PULMOTOR_ARCHIVE() template<class ArchiveT> void archive (ArchiveT& ar, unsigned version)
-#define PULMOTOR_ARCHIVE_SPLIT(T) template<class ArchiveT> inline void archive (ArchiveT& ar, unsigned version) {\
+#define PULMOTOR_ARCHIVE_SPLIT() template<class ArchiveT> void archive (ArchiveT& ar, unsigned version) {\
 	typedef std::tr1::integral_constant<bool, ArchiveT::is_reading> is_reading_t; \
 	archive_impl(ar, version, is_reading_t()); }
-#define PULMOTOR_ARCHIVE_READ() template<class ArchiveT> inline void archive_impl (ArchiveT& ar, unsigned version, pulmotor::true_t)
-#define PULMOTOR_ARCHIVE_WRITE() template<class ArchiveT> inline void archive_impl (ArchiveT& ar, unsigned version, pulmotor::false_t)
+#define PULMOTOR_ARCHIVE_READ() template<class ArchiveT> void archive_impl (ArchiveT& ar, unsigned version, pulmotor::true_t)
+#define PULMOTOR_ARCHIVE_WRITE() template<class ArchiveT> void archive_impl (ArchiveT& ar, unsigned version, pulmotor::false_t)
 	
 
 #define PULMOTOR_ARCHIVE_FREE(T) template<class ArchiveT> void archive (ArchiveT& ar, T& v, unsigned version)

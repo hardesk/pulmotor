@@ -14,6 +14,20 @@
 namespace pulmotor { namespace util {
 	
 template<class T>
+inline T align (T a, size_t alignment)
+{
+	assert (alignment > 0 && (alignment & (alignment-1)) == 0);
+	return (a-1 | alignment-1) + 1;
+}
+
+template<int Alignment, class T>
+inline T align (T a)
+{
+	assert (Alignment > 0 && (Alignment & (Alignment-1)) == 0);
+	return (a-1 | Alignment-1) + 1;
+}
+	
+template<class T>
 inline void blit_to_container (T& a, std::vector<unsigned char>& odata, target_traits const& tt);
 
 std::string dm (char const*);
