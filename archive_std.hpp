@@ -34,7 +34,7 @@ void archive (ArchiveT& ar, std::vector<T, AllocatorT>& v, unsigned version)
 	if (ArchiveT::is_reading)
 		v.resize (sz);
 
-	if (std::tr1::is_fundamental<T>::value)
+	if (std::is_fundamental<T>::value)
 		ar & pulmotor::memblock (&*v.begin(), sz);
 	else
 		for (size_t i=0; i<sz; ++i)

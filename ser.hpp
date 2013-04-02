@@ -5,7 +5,7 @@
 #include "pulmotor_types.hpp"
 #include "pulmotor_fwd.hpp"
 
-#include <tr1/type_traits>
+#include <type_traits>
 //#include <boost/type_traits/extent.hpp>
 //#include <boost/type_traits/is_class.hpp>
 //#include <boost/type_traits/is_integral.hpp>
@@ -63,9 +63,7 @@ inline char const* to_string (category cat) {
 	}
 }
 		
-using namespace boost::multi_index;
-using namespace std::tr1;
-	
+using namespace boost::multi_index;	
 	
 inline void change_endianess (blit_section_info& bsi)
 {
@@ -218,9 +216,9 @@ struct exchange_t
 };*/
 
 template<class T>
-inline ptr_address<typename std::tr1::remove_cv<T>::type> ptr (T*& p, size_t cnt)
+inline ptr_address<typename std::remove_cv<T>::type> ptr (T*& p, size_t cnt)
 {
-	typedef typename std::tr1::remove_cv<T>::type clean_t;
+	typedef typename std::remove_cv<T>::type clean_t;
 	return ptr_address<clean_t> ((clean_t**)pulmotor_addressof(p), cnt);
 }
 /*template<class T>
@@ -260,7 +258,7 @@ struct is_array_address<array_address<T, N> >
 
 template<class T>
 struct is_primitive :
-	public boost::type_traits::ice_or<is_integral<T>::value, is_floating_point<T>::value>
+	public boost::type_traits::ice_or<std::is_integral<T>::value, std::is_floating_point<T>::value>
 {};
 
 //template<class T>
@@ -270,7 +268,7 @@ struct is_primitive :
 
 
 template<class T>
-struct clean : public remove_cv<T>
+struct clean : public std::remove_cv<T>
 {
 //	typedef typename boost::mpl::if_c<
 //			is_pointer<T>::value,
@@ -283,9 +281,9 @@ template<class T>
 struct type_category
 {
 	static const category value =
-		  is_integral<T>::value			? k_integral
-		: is_floating_point<T>::value	? k_floating_point
-		: is_pointer<T>::value			? k_pointer
+		  std::is_integral<T>::value		? k_integral
+		: std::is_floating_point<T>::value	? k_floating_point
+		: std::is_pointer<T>::value			? k_pointer
 		: k_other
 		;
 };
@@ -307,7 +305,7 @@ struct blit_section
 
 		category get_category () const { return ci_->get_category(); }
 		bool is_array () const { return count_ > 1; }
-		int get_size () const { return ci_->get_size(); }
+		size_t get_size () const { return ci_->get_size(); }
 
 		class_info const*	ci_;
 		size_t				offset_;
@@ -923,7 +921,7 @@ struct blit_section
 							break;
 						}
 
-						int offset_in_referencee = o->local_offset (ptr);
+						size_t offset_in_referencee = o->local_offset (ptr);
 
 						write_logf_ident (1, 0);
 
@@ -1286,8 +1284,8 @@ inline void blit_impl (blit_section& ar, ObjectT& obj, unsigned version, array_t
 	//gather_logf ("ARRAY ObjectT: %s\n", util::dm(typeid(ObjectT).name()).c_str());
 	ObjectT* aa = (ObjectT*) pulmotor_addressof (obj);
 
-	size_t const array_size = std::tr1::extent<ObjectT>::value;
-	typedef typename remove_all_extents<ObjectT>::type array_member_t;
+	size_t const array_size = std::extent<ObjectT>::value;
+	typedef typename std::remove_all_extents<ObjectT>::type array_member_t;
 
 	gather_logf_ident (0, "array (@ %p) x %lu, type: %s\n",
 		aa, array_size, shorten_name(typeid(obj).name()).c_str());
@@ -1310,7 +1308,7 @@ inline void blit_impl (blit_section& ar, ptr_address<ObjectT> objaddr, unsigned 
 {
 	ObjectT** oa = reinterpret_cast<ObjectT**> (objaddr.addr);
 	
-	typedef typename clean<typename remove_all_extents<ObjectT>::type>::type pointee_t;
+	typedef typename clean<typename std::remove_all_extents<ObjectT>::type>::type pointee_t;
 	typedef typename clean<ObjectT>::type* pointer_t;
 
 	gather_logf_ident (0, "pointer (%p x %lu @ %p), type: %s, pointee: %s\n",
@@ -1362,7 +1360,7 @@ template<class ObjectT>
 inline void blit_impl (blit_section& ar, ObjectT& obj, unsigned version, pointer_tag)
 {
 	ObjectT* po = (ObjectT*)pulmotor_addressof(obj);
-	ptr_address<typename remove_pointer<ObjectT>::type> adr(po, 1);
+	ptr_address<typename std::remove_pointer<ObjectT>::type> adr(po, 1);
 	blit_impl (ar, adr, version, ptr_address_tag ());
 }
 
@@ -1373,12 +1371,12 @@ inline void blit_redirect (blit_section& ar, ObjectT& obj, unsigned flags_versio
 	using boost::mpl::identity;
 	using boost::mpl::eval_if;
 
-	typedef typename remove_cv<ObjectT>::type actual_t;
+	typedef typename std::remove_cv<ObjectT>::type actual_t;
 	typedef typename boost::mpl::eval_if<
 		is_primitive<actual_t>,
 			identity<primitive_tag>,
 			eval_if<
-				is_array<actual_t>,
+				std::is_array<actual_t>,
 				identity<array_tag>,
 				eval_if<
 					is_ptr_address<actual_t>,
@@ -1387,7 +1385,7 @@ inline void blit_redirect (blit_section& ar, ObjectT& obj, unsigned flags_versio
 						is_array_address<actual_t>,
 						identity<array_address_tag>,
 						eval_if<
-							is_pointer<actual_t>,
+							std::is_pointer<actual_t>,
 							identity<pointer_tag>,
 							identity<compound_tag>
 						>
