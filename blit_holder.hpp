@@ -40,7 +40,7 @@ public:
 	}
 	
 #if PULMOTOR_STIR_PATH_SUPPORT
-	explicit blit_holder (stir::platform_path const& fname)
+	explicit blit_holder (stir::path const& fname)
 	:	data_ (0), size_ (0)
 #if _DEBUG
 	,	object_ (0)
@@ -67,7 +67,7 @@ public:
 	}
 	
 #if PULMOTOR_STIR_PATH_SUPPORT
-	void load (stir::platform_path const& fname)
+	void load (stir::path const& fname)
 	{ return load (fname.c_str()); }
 #endif
 

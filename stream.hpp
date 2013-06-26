@@ -214,13 +214,13 @@ namespace pulmotor
 	
 #if PULMOTOR_STIR_PATH_SUPPORT
 	// global input/output factory functions
-	inline file_size_t get_file_size (stir::platform_path const& file_name)
+	inline file_size_t get_file_size (stir::path const& file_name)
 	{ return get_file_size (file_name.c_str()); }
-	inline std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_plain_input (stir::platform_path const& file_name)
+	inline std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_plain_input (stir::path const& file_name)
 	{ return create_plain_input (file_name.c_str()); }
-	inline std::auto_ptr<basic_output_buffer> PULMOTOR_ATTR_DLL create_plain_output(stir::platform_path const& file_name)
+	inline std::auto_ptr<basic_output_buffer> PULMOTOR_ATTR_DLL create_plain_output(stir::path const& file_name)
 	{ return create_plain_output (file_name.c_str()); }
-	inline std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_input (stir::platform_path const& file_name)
+	inline std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_input (stir::path const& file_name)
 	{ return create_plain_input (file_name.c_str()); }
 #endif
 }
