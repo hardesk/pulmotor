@@ -74,26 +74,26 @@ public:
 	template<int Align, class T>
 	void read_basic (T& data)
 	{
+		std::error_code ec;
 		int toRead = sizeof(data);
 		if (Align != 1)
 		{
 			char skipBuf[8];
 			size_t correctOffset = util::align<Align> (offset_);
 			if (int skip = correctOffset - offset_) {
-				buffer_.read ((void*)skipBuf, skip, NULL);
+				buffer_.read ((void*)skipBuf, skip, ec);
 				offset_ += skip;
 			}
 		}
-		error_id err = buffer_.read ((void*)&data, toRead, NULL);
-		offset_ += toRead;
-		(void)err;
+		int wasRead = buffer_.read ((void*)&data, toRead, ec);
+		offset_ += wasRead;
 	}
 
 	void read_data (void* dest, size_t size)
 	{
-		error_id err = buffer_.read (dest, size, NULL);
-		offset_ += size;
-		(void)err;
+		std::error_code ec;
+		int wasRead = buffer_.read (dest, size, ec);
+		offset_ += wasRead;
 	}
 };
 
@@ -110,24 +110,24 @@ public:
 	template<int Align, class T>
 	void write_basic (T& data)
 	{
+		std::error_code ec;
 		if (Align != 1) {
 			char alignBuf[7] = { 0,0,0,0, 0,0,0 };
 			size_t correctOffset = util::align<Align> (written_);
 			if (int fill = correctOffset - written_) {
-				buffer_.write ((void*)alignBuf, fill, NULL);
+				buffer_.write ((void*)alignBuf, fill, ec);
 				written_ += fill;
 			}
 		}
-		error_id err = buffer_.write (&data, sizeof(data), NULL);
-		written_ += sizeof (data);
-		(void)err;
+		int written = buffer_.write (&data, sizeof(data), ec);
+		written_ += written;
 	}
 
 	void write_data (void* src, size_t size)
 	{
-		error_id err = buffer_.write (src, size, NULL);
-		written_ += size;
-		(void)err;
+		std::error_code ec;
+		int written = buffer_.write (src, size, ec);
+		written_ += written;
 	}
 };
 	

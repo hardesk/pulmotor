@@ -1456,13 +1456,11 @@ inline size_t write_file (pp_char const* name, u8 const* ptr, size_t size)
 
 	if (output.get ())
 	{
-		size_t written = 0;
-		error_id result = output->write (ptr, size, &written);
-
-		if (result == pulmotor::k_ok)
-			return written;
-
-		return 0;
+		std::error_code ec;
+		int written = output->write (ptr, size, ec);
+		if (ec)
+			return 0;
+		return written;
 	}
 
 	return 0;

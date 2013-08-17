@@ -58,7 +58,7 @@ namespace pulmotor
 	{
 	public:
 		virtual ~basic_input_buffer() = 0;
-		virtual error_id read (void* dest, size_t count, size_t* was_read) = 0;
+		virtual int read (void* dest, size_t count, std::error_code& ec) = 0;
 	};
 
 	//
@@ -66,7 +66,7 @@ namespace pulmotor
 	{
 	public:
 		virtual ~basic_output_buffer() = 0;
-		virtual error_id write (void const* src, size_t count, size_t* was_written) = 0;
+		virtual int write (void const* src, size_t count, std::error_code& ec) = 0;
 	};
 	
 	//
@@ -100,10 +100,10 @@ namespace pulmotor
 	class PULMOTOR_ATTR_DLL cfile_output_buffer : public basic_output_buffer
 	{
 	public:
-		cfile_output_buffer (pulmotor::pp_char const* file_name);
+		cfile_output_buffer (pulmotor::pp_char const* file_name, std::error_code& ec);
 		virtual ~cfile_output_buffer();
 
-		virtual error_id write (void const* src, size_t count, size_t* was_written);
+		virtual int write (void const* src, size_t count, std::error_code& ec);
 		
 		bool good () const {
 			return file_ != 0;
@@ -120,10 +120,10 @@ namespace pulmotor
 	class PULMOTOR_ATTR_DLL cfile_input_buffer : public basic_input_buffer
 	{
 	public:
-		cfile_input_buffer (pulmotor::pp_char const* file_name);
+		cfile_input_buffer (pulmotor::pp_char const* file_name, std::error_code& ec);
 		virtual ~cfile_input_buffer();
 
-		virtual error_id read (void* dest, size_t count, size_t* was_read);
+		virtual int read (void* dest, size_t count, std::error_code& ec);
 		bool good () const {
 			return file_ != 0;
 		}

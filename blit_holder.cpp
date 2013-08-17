@@ -16,11 +16,9 @@ void load_impl (char const* fname, size_t& size, u8*& data)
 		{
 			u8* dat = new u8 [fs];
 			
-			size_t was_read;
-			pulmotor::error_id err = i->read (dat, fs, &was_read);
-			
-			if (err != pulmotor::k_ok)
-			{
+			std::error_code ec;
+			int was_read = i->read (dat, fs, ec);
+			if (ec || was_read != fs) {
 				delete []dat;
 				return;
 			}

@@ -34,16 +34,21 @@ basic_output_buffer::~basic_output_buffer()
 {}
 
 //
-cfile_output_buffer::cfile_output_buffer (pulmotor::pp_char const* file_name)
+cfile_output_buffer::cfile_output_buffer (pulmotor::pp_char const* file_name, std::error_code& ec)
 #ifdef _DEBUG
 	:	name_ (file_name)
 #endif
 {
+	ec.clear();
+	
 #ifdef _WIN32
 	file_ = _wfopen (file_name, L"wb+");
 #else
 	file_ = fopen (file_name, "wb+");
 #endif
+	
+	if (!file_)
+		ec.assign((int)std::errc::no_such_file_or_directory, std::system_category());
 }
 
 cfile_output_buffer::~cfile_output_buffer ()
@@ -52,24 +57,40 @@ cfile_output_buffer::~cfile_output_buffer ()
 		fclose (file_);
 }
 
-error_id cfile_output_buffer::write (void const* src, size_t count, size_t* was_written)
+int cfile_output_buffer::write (void const* src, size_t count, std::error_code& ec)
 {
+	if (!file_) {
+		ec.assign((int)std::errc::bad_file_descriptor, std::system_category());
+		return 0;
+	}
+	
 	size_t res = fwrite (src, 1, count, file_);
-	if (was_written)
-		*was_written = res;
-	return k_ok;
+	if (res == count)
+	{
+		ec.clear();
+		return res;
+	}
+	
+	ec.assign(ferror(file_), std::system_category());
+	
+	return res;
 }
 
-cfile_input_buffer::cfile_input_buffer (pulmotor::pp_char const* file_name)
+cfile_input_buffer::cfile_input_buffer (pulmotor::pp_char const* file_name, std::error_code& ec)
 #ifdef _DEBUG
 	:	name_ (file_name)
 #endif
 {
+	ec.clear();
+	
 #ifdef _WIN32
 	file_ = _wfopen (file_name, L"rb");
 #else
 	file_ = fopen (file_name, "rb");
 #endif
+	
+	if (!file_)
+		ec.assign((int)std::errc::no_such_file_or_directory, std::system_category());
 }
 
 cfile_input_buffer::~cfile_input_buffer ()
@@ -78,14 +99,22 @@ cfile_input_buffer::~cfile_input_buffer ()
 		fclose (file_);
 }
 
-error_id cfile_input_buffer::read (void* dest, size_t count, size_t* was_read)
+int cfile_input_buffer::read (void* dest, size_t count, std::error_code& ec)
 {
+	if (!file_) {
+		ec.assign((int)std::errc::bad_file_descriptor, std::system_category());
+		return 0;
+	}
+	
 	size_t res = fread (dest, 1, count, file_);
+	if (res == count) {
+		ec.clear();
+		return res;
+	}
 	
-	if (was_read)
-		*was_read = res;
+	ec.assign(ferror(file_), std::system_category());
 	
-	return k_ok;
+	return res;
 }
 
 /*
@@ -134,7 +163,10 @@ std::auto_ptr<basic_input_buffer> create_plain_input (pulmotor::pp_char const* f
 {
 	std::auto_ptr<basic_input_buffer> ptr;
 	
-	ptr.reset (new cfile_input_buffer (file_name));
+	std::error_code ec;
+	cfile_input_buffer* p = new cfile_input_buffer (file_name, ec);
+	if (!ec && p->good())
+		ptr.reset(p);
 
 	return ptr;
 }
@@ -142,8 +174,11 @@ std::auto_ptr<basic_input_buffer> create_plain_input (pulmotor::pp_char const* f
 std::auto_ptr<basic_output_buffer> create_plain_output (pulmotor::pp_char const* file_name)
 {
 	std::auto_ptr<basic_output_buffer> ptr;
-	
-	ptr.reset (new cfile_output_buffer(file_name));
+
+	std::error_code ec;
+	cfile_output_buffer* p = new cfile_output_buffer(file_name, ec);
+	if (!ec && p->good())
+		ptr.reset(p);
 	
 	return ptr;
 }
