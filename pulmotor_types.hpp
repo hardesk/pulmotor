@@ -22,6 +22,8 @@ namespace pulmotor
 	typedef std::string string;
 #endif
 	
+	typedef u64 file_size_t;
+	
 	enum { header_size = 8 };
 
 	class blit_section;
@@ -141,6 +143,8 @@ namespace pulmotor
 			debug_ptr_ = (T*)((u8*)bsi_ + bsi_->data_offset);
 #endif
 		}
+		
+		bool valid () const { return bsi_ != nullptr; }
 		
 		T* get () const { return (T*)((u8*)bsi_ + bsi_->data_offset); }
 		T* operator->() const { return (T*)((u8*)bsi_ + bsi_->data_offset); }

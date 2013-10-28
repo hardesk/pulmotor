@@ -662,7 +662,7 @@ struct blit_section
 		}
 	}
 
-	void dump_gathered ()
+/*	void dump_gathered ()
 	{
 		write_logf ("gathered- types:\n");
 		for (class_info_container_t::iterator it = class_infos_.begin (), end = class_infos_.end (); it != end; ++it)
@@ -685,7 +685,7 @@ struct blit_section
 			   	shorten_name (o->get_class_name ()).c_str ());
 			++i;
 		}
-	}
+	}*/
 
 	void append (std::vector<unsigned char>& buffer, void const* data, size_t size)
 	{

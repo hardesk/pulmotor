@@ -22,8 +22,6 @@
 
 namespace pulmotor
 {
-	typedef u32 file_size_t;
-	
 	enum error_id
 	{
 		k_ok,

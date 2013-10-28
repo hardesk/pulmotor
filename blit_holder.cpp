@@ -17,7 +17,7 @@ void load_impl (char const* fname, size_t& size, u8*& data)
 			u8* dat = new u8 [fs];
 			
 			std::error_code ec;
-			int was_read = i->read (dat, fs, ec);
+			int was_read = i->read (dat, (size_t)fs, ec);
 			if (ec || was_read != fs) {
 				delete []dat;
 				return;
