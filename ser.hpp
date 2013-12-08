@@ -811,9 +811,9 @@ struct blit_section
 				, section_align);
 
 			bsi.reserved = 0xdddddddd;
-			bsi.data_offset = f_data_offset;
-			bsi.fixup_offset= f_fixup_offset;
-			bsi.fixup_count	= fixups.size ();
+			bsi.data_offset = (pulmotor::u32)f_data_offset;
+			bsi.fixup_offset= (pulmotor::u32)f_fixup_offset;
+			bsi.fixup_count	= (pulmotor::u32)fixups.size ();
 
 			// writing the header in BE, always
 			if (pulmotor::is_le ())
@@ -1216,7 +1216,7 @@ struct factory_creation
 template<class ObjectT>
 inline void serialize (blit_section& ar, ObjectT& obj, unsigned long version)
 {
-	access::call_member (static_cast<blit_section&> (ar), obj, version);
+	access::call_serialize (static_cast<blit_section&> (ar), obj, version);
 }
 
 // a structure
@@ -1450,22 +1450,6 @@ inline void fixup (pulmotor::blit_section_info* bsi)
 	util::fixup_pointers (data, fixups, bsi->fixup_count);
 }
 	
-inline size_t write_file (pp_char const* name, u8 const* ptr, size_t size)
-{
-	std::auto_ptr<basic_output_buffer> output = create_plain_output (name);
-
-	if (output.get ())
-	{
-		std::error_code ec;
-		int written = output->write (ptr, size, ec);
-		if (ec)
-			return 0;
-		return written;
-	}
-
-	return 0;
-}
-
 template<class T>
 size_t write_file (pp_char const* name, T& root, target_traits const& tt, size_t sectionalign)
 {

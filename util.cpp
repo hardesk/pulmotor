@@ -1,5 +1,6 @@
 #include "util.hpp"
 #include <string>
+#include "stream.hpp"
 
 #if defined(__GNUC__) && 0
 #include <demangle.h>
@@ -21,6 +22,25 @@ target_traits const target_traits::be_lp32 = { 4, true };
 
 target_traits const target_traits::le_lp64 = { 8, false };
 target_traits const target_traits::be_lp64 = { 8, true };
+		
+#define PULMOTOR_BN1(x) char const* short_type_name<x>::name = #x;
+	
+	PULMOTOR_BN1(char)
+	PULMOTOR_BN1(unsigned char)
+	PULMOTOR_BN1(short)
+	PULMOTOR_BN1(unsigned short)
+	PULMOTOR_BN1(int)
+	PULMOTOR_BN1(unsigned)
+	PULMOTOR_BN1(long)
+	PULMOTOR_BN1(unsigned long)
+	PULMOTOR_BN1(long long)
+	PULMOTOR_BN1(unsigned long long)
+	PULMOTOR_BN1(float)
+	PULMOTOR_BN1(double)
+	PULMOTOR_BN1(long double)
+	PULMOTOR_BN1(char16_t)
+	PULMOTOR_BN1(char32_t)
+	
 	
 namespace util {
 
@@ -66,7 +86,7 @@ void hexdump (void const* p, int len)
 	}
 }
 
-void set_offsets (void* data, std::pair<uintptr_t,uintptr_t> const* fixups, size_t fixup_count, int ptrsize, bool change_endianess)
+void set_offsets (void* data, std::pair<uintptr_t,uintptr_t> const* fixups, size_t fixup_count, size_t ptrsize, bool change_endianess)
 {
 	char* datap = (char*)data;
 	for (size_t i=0; i<fixup_count; ++i)
@@ -117,5 +137,47 @@ void* fixup_pointers_impl (blit_section_info* bsi)
 	
 	return data;
 }
+	
+size_t read_file (pp_char const* name, u8* ptr, size_t size, std::error_code& ec)
+{
+	std::auto_ptr<basic_input_buffer> input = create_plain_input (name);
+	
+	if (input.get ())
+		return input->read (ptr, size, ec);
+	else
+		ec = std::make_error_code(std::errc::io_error);
+	
+	return 0;
+}
+	
+void read_file (pp_char const* name, std::vector<u8>& out, std::error_code& ec)
+{
+	if (size_t fl = get_file_size (name))
+	{
+		out.resize (fl);
+		size_t wasRead = read_file (name, out.data(), fl, ec);
+		out.resize (wasRead);
+	}
+	else
+		ec = std::make_error_code(std::errc::no_such_file_or_directory);
+}
+	
+size_t write_file (pp_char const* name, u8 const* ptr, size_t size)
+{
+	std::auto_ptr<basic_output_buffer> output = create_plain_output (name);
+	
+	if (output.get ())
+	{
+		std::error_code ec;
+		size_t written = output->write (ptr, size, ec);
+		if (ec)
+			return 0;
+		return written;
+	}
+	
+	return 0;
+}
+
+	
 
 }}

@@ -56,7 +56,7 @@ namespace pulmotor
 	{
 	public:
 		virtual ~basic_input_buffer() = 0;
-		virtual int read (void* dest, size_t count, std::error_code& ec) = 0;
+		virtual size_t read (void* dest, size_t count, std::error_code& ec) = 0;
 	};
 
 	//
@@ -64,7 +64,7 @@ namespace pulmotor
 	{
 	public:
 		virtual ~basic_output_buffer() = 0;
-		virtual int write (void const* src, size_t count, std::error_code& ec) = 0;
+		virtual size_t write (void const* src, size_t count, std::error_code& ec) = 0;
 	};
 	
 	//
@@ -101,11 +101,13 @@ namespace pulmotor
 		cfile_output_buffer (pulmotor::pp_char const* file_name, std::error_code& ec);
 		virtual ~cfile_output_buffer();
 
-		virtual int write (void const* src, size_t count, std::error_code& ec);
+		virtual size_t write (void const* src, size_t count, std::error_code& ec);
 		
 		bool good () const {
 			return file_ != 0;
 		}
+		
+		FILE* handle() { return file_; }
 
 	private:
 #ifdef _DEBUG
@@ -121,7 +123,7 @@ namespace pulmotor
 		cfile_input_buffer (pulmotor::pp_char const* file_name, std::error_code& ec);
 		virtual ~cfile_input_buffer();
 
-		virtual int read (void* dest, size_t count, std::error_code& ec);
+		virtual size_t read (void* dest, size_t count, std::error_code& ec);
 		bool good () const {
 			return file_ != 0;
 		}

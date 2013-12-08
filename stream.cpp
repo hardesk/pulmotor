@@ -57,7 +57,7 @@ cfile_output_buffer::~cfile_output_buffer ()
 		fclose (file_);
 }
 
-int cfile_output_buffer::write (void const* src, size_t count, std::error_code& ec)
+size_t cfile_output_buffer::write (void const* src, size_t count, std::error_code& ec)
 {
 	if (!file_) {
 		ec.assign((int)std::errc::bad_file_descriptor, std::system_category());
@@ -71,7 +71,8 @@ int cfile_output_buffer::write (void const* src, size_t count, std::error_code& 
 		return res;
 	}
 	
-	ec.assign(ferror(file_), std::system_category());
+	if(ferror(file_))
+		ec.assign((int)std::errc::io_error, std::system_category());
 	
 	return res;
 }
@@ -99,7 +100,7 @@ cfile_input_buffer::~cfile_input_buffer ()
 		fclose (file_);
 }
 
-int cfile_input_buffer::read (void* dest, size_t count, std::error_code& ec)
+size_t cfile_input_buffer::read (void* dest, size_t count, std::error_code& ec)
 {
 	if (!file_) {
 		ec.assign((int)std::errc::bad_file_descriptor, std::system_category());
@@ -112,7 +113,9 @@ int cfile_input_buffer::read (void* dest, size_t count, std::error_code& ec)
 		return res;
 	}
 	
-	ec.assign(ferror(file_), std::system_category());
+	if (feof (file_) || ferror(file_)) {
+		ec.assign((int)std::errc::io_error, std::system_category());
+	}
 	
 	return res;
 }

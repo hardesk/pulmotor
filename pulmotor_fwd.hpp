@@ -19,7 +19,7 @@ namespace pulmotor
 
 template<class T> struct version;
 template<class T> struct track_version;
-
+	
 struct pulmotor_archive;
 //template<class T> struct ref_wrapper;
 //template<class T>
@@ -31,22 +31,63 @@ template<class T> inline ptr_address<typename std::remove_cv<T>::type> ptr (T*& 
 
 class access;
 struct blit_section;
+	
+struct object_context_tag {};
+	
+template<class T, class... D>
+struct object_context : public object_context_tag
+{
+	typedef std::tuple<D...> data_t;
+	
+	object_context(T& o, D... data) : m_object(o), m_data(data...) { }
+
+	data_t m_data;
+	T& m_object;
+};
 
 template<class ArchiveT, class ObjectT> inline ArchiveT& blit (ArchiveT& ar, ObjectT& obj);
 
+template<class ArchiveT, class T>
+inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
+operator& (ArchiveT& ar, T const& obj);
+	
+template<class ArchiveT, class T, class... Args>
+inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
+operator& (ArchiveT& ar, object_context<T, Args...> const& ctx);
+	
+template<class ArchiveT, class AsT, class ActualT>
+inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
+operator& (ArchiveT& ar, as_holder<AsT, ActualT> const& ash);
+
+	
+
+template<class ArchiveT, class T>
+inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
+operator| (ArchiveT& ar, T const& obj);
+
+template<class ArchiveT, class T, class... Args>
+inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
+operator| (ArchiveT& ar, object_context<T, Args...> const& ctx);
+	
+template<class ArchiveT, class AsT, class ActualT>
+inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
+operator| (ArchiveT& ar, as_holder<AsT, ActualT> const& ash);
+	
+	
 template<class ObjectT>
 inline blit_section& operator | (blit_section& ar, ObjectT const& obj);
 template<class ObjectT>
 inline blit_section& operator & (blit_section& ar, ObjectT const& obj);
 
-template<class ArchiveT, class T>
+/*template<class ArchiveT, class T>
 	inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
 	operator& (ArchiveT& ar, T const& obj);
 
 template<class ArchiveT, class T>
 	inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
 	operator| (ArchiveT& ar, T const& obj);
-
+*/
+	
 namespace util
 {
 	void* fixup_pointers_impl (pulmotor::blit_section_info* bsi);

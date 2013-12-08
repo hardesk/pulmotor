@@ -10,8 +10,33 @@
 #include <stdint.h>
 #include <cstdio>
 #include <cassert>
+#include <system_error>
 
-namespace pulmotor { namespace util {
+namespace pulmotor {
+
+template<class T>
+struct short_type_name { };
+	
+#define PULMOTOR_BN(x) template<> struct short_type_name<x> { static char const* name; };
+
+	PULMOTOR_BN(char)
+	PULMOTOR_BN(unsigned char)
+	PULMOTOR_BN(short)
+	PULMOTOR_BN(unsigned short)
+	PULMOTOR_BN(int)
+	PULMOTOR_BN(unsigned)
+	PULMOTOR_BN(long)
+	PULMOTOR_BN(unsigned long)
+	PULMOTOR_BN(long long)
+	PULMOTOR_BN(unsigned long long)
+	PULMOTOR_BN(float)
+	PULMOTOR_BN(double)
+	PULMOTOR_BN(long double)
+	PULMOTOR_BN(char16_t)
+	PULMOTOR_BN(char32_t)
+
+
+namespace util {
 	
 template<class T>
 inline T align (T a, size_t alignment)
@@ -110,9 +135,14 @@ inline void swap_elements (void* ptr, size_t size, size_t count)
 	}
 }
 
-void set_offsets (void* data, std::pair<uintptr_t,uintptr_t> const* fixups, size_t fixup_count, int ptrsize, bool change_endianess);
+void set_offsets (void* data, std::pair<uintptr_t,uintptr_t> const* fixups, size_t fixup_count, size_t ptrsize, bool change_endianess);
 void fixup_pointers (void* data, uintptr_t const* fixups, size_t fixup_count);
+	
+size_t read_file (pp_char const* name, u8 const* ptr, size_t size);
+void read_file (pp_char const* name, std::vector<u8>& out, std::error_code& ec);	
 
+size_t write_file (pp_char const* name, u8 const* ptr, size_t size);
+	
 }}
 
 #endif

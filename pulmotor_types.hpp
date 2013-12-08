@@ -2,6 +2,48 @@
 #define PULMOTOR_TYPES_HPP_
 
 #include <string>
+#include <type_traits>
+
+
+#define PULMOTOR_ARCHIVE() template<class ArchiveT> void archive (ArchiveT& ar, unsigned pversion)
+#define PULMOTOR_ARCHIVE_SPLIT() template<class ArchiveT> void archive (ArchiveT& ar, unsigned pversion) {\
+typedef std::integral_constant<bool, ArchiveT::is_reading> is_reading_t; \
+archive_impl(ar, pversion, is_reading_t()); }
+#define PULMOTOR_ARCHIVE_READ() template<class ArchiveT> void archive_impl (ArchiveT& ar, unsigned pversion, pulmotor::true_t)
+#define PULMOTOR_ARCHIVE_WRITE() template<class ArchiveT> void archive_impl (ArchiveT& ar, unsigned pversion, pulmotor::false_t)
+
+
+#define PULMOTOR_ARCHIVE_FREE(T) template<class ArchiveT> void archive (ArchiveT& ar, T& v, unsigned version)
+#define PULMOTOR_ARCHIVE_FREE_SPLIT(T) template<class ArchiveT> inline void archive (ArchiveT& ar, T& v, unsigned pversion) {\
+typedef std::integral_constant<bool, ArchiveT::is_reading> is_reading_t; \
+archive_impl(ar, v, pversion, is_reading_t()); }
+
+#define PULMOTOR_ARCHIVE_FREE_READ(T) template<class ArchiveT> inline void archive_impl (ArchiveT& ar, T& v, unsigned pversion, pulmotor::true_t)
+#define PULMOTOR_ARCHIVE_FREE_WRITE(T) template<class ArchiveT> inline void archive_impl (ArchiveT& ar, T& v, unsigned pversion, pulmotor::false_t)
+
+// Construct and SaveConstruct helper macros
+
+#define PULMOTOR_ARCHIVE_USE_CONSTRUCT() \
+	template<class ArchiveT> \
+	void archive (ArchiveT& ar, unsigned version) { \
+		typedef std::integral_constant<bool, ArchiveT::is_reading> is_reading_t; \
+		archive_use_construct_impl (ar, this, is_reading_t(), version); \
+	} \
+	template<class ArchiveT, class ObjT> \
+	static void archive_use_construct_impl (ArchiveT& ar, ObjT* p, pulmotor::true_t, unsigned version) { \
+		select_archive_construct(ar, p, version); \
+	} \
+	template<class ArchiveT, class ObjT> \
+	static void archive_use_construct_impl (ArchiveT& ar, ObjT* p, pulmotor::false_t,  unsigned version) { \
+		select_archive_save_construct(ar, p, version); \
+	}
+
+
+#define PULMOTOR_ARCHIVE_CONSTRUCT(xx) \
+	template<class ArchiveT> static void archive_construct (ArchiveT& ar, xx, unsigned version)
+
+#define PULMOTOR_ARCHIVE_SAVE_CONSTRUCT(xx) \
+	template<class ArchiveT> void archive_save_construct (ArchiveT& ar, unsigned version)
 
 namespace pulmotor
 {
@@ -13,6 +55,9 @@ namespace pulmotor
 	typedef signed int			s32;
 	typedef unsigned long long	u64;
 	typedef signed long long	s64;
+	
+	typedef std::true_type true_t;
+	typedef std::false_type false_t;
 	
 #ifdef _WIN32
 	typedef wchar_t pp_char;
@@ -52,8 +97,8 @@ namespace pulmotor
 			const_cast<T&> (obj).archive (ar, version);
 		}
 
-		template<class T>
-		static void call_member (blit_section& ar, T const& obj, unsigned version)
+		template<class ArchiveT, class T>
+		static void call_serialize (ArchiveT& ar, T const& obj, unsigned version)
 		{
 			const_cast<T&> (obj).serialize (ar, version);
 		}
@@ -74,6 +119,13 @@ namespace pulmotor
 	template<class T> struct track_version {
 		static bool const value = true;
 	};
+	
+#define PULMOTOR_ARCHIVE_VER(T, v) template<> struct version<T> { enum { value = v }; }
+	
+#define PULMOTOR_ARCHIVE_NOVER(T) template<> struct track_version<T> { enum { value = 0 }; }
+#define PULMOTOR_ARCHIVE_NOVER_TEMPLATE1(T) template<class TT> struct track_version< T < TT > > { enum { value = 0 }; }
+#define PULMOTOR_ARCHIVE_NOVER_TEMPLATE2(T) template<class TT1, class TT2> struct track_version< T < TT1, TT2 > > { enum { value = 0 }; }
+	
 
 	template<class T>
 	struct memblock_t
@@ -84,6 +136,21 @@ namespace pulmotor
 	};
 	template<class T>
 	memblock_t<T> inline memblock (T const* p, size_t cnt) { return memblock_t<T> (p, cnt); }
+	
+	
+	template<class AsT, class ActualT>
+	struct as_holder
+	{
+		ActualT& m_actual;
+		explicit as_holder (ActualT& act) : m_actual(act) {}
+	};
+	
+	template<class AsT, class ActualT>
+	inline as_holder<AsT, ActualT> as (ActualT& act)
+	{
+		return as_holder<AsT, ActualT> (act);
+	}
+	
 
 	template<class T>
 	struct ptr_address
@@ -91,9 +158,33 @@ namespace pulmotor
 		ptr_address (T* const* p, size_t cnt) : addr ((uintptr_t)p), count (cnt) {}
 		ptr_address (T const* const* p, size_t cnt) : addr ((uintptr_t)p), count (cnt) {}
 		ptr_address (T const** p, size_t cnt) : addr ((uintptr_t)p), count (cnt) {}
+		
+		T*& ptrref() { return *(T**)addr; }
 
 		uintptr_t	addr;
 		size_t		count;
+	};
+	
+	template<class T>
+	struct archive_array
+	{
+		T* ptr;
+		size_t count;
+		
+		archive_array (T* p, size_t cnt) : ptr(p), count(cnt) {}
+		
+		PULMOTOR_ARCHIVE_SPLIT()
+		PULMOTOR_ARCHIVE_READ()
+		{
+			for (size_t i=0; i<count; ++i)
+				load_construct (ar, &ptr[i], pversion);
+		}
+		PULMOTOR_ARCHIVE_WRITE()
+		{
+			for (size_t i=0; i<count; ++i)
+				save_construct (ar, &ptr[i], pversion);
+		}
+		
 	};
 
 	template<class T, int N>
@@ -107,9 +198,9 @@ namespace pulmotor
 	
 	struct blit_section_info
 	{
-		int 	data_offset;
-		int		fixup_offset, fixup_count;
-		int		reserved;
+		pulmotor::u32 	data_offset;
+		pulmotor::u32	fixup_offset, fixup_count;
+		pulmotor::u32	reserved;
 	};	
 	
 	namespace util
