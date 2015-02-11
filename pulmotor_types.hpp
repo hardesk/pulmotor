@@ -70,6 +70,8 @@ namespace pulmotor
 	typedef u64 file_size_t;
 	
 	enum { header_size = 8 };
+	enum { version_dont_track = -1 };
+	enum { version_default = 0 };
 
 	class blit_section;
 	
@@ -87,22 +89,6 @@ namespace pulmotor
 		static target_traits const le_lp64;
 		static target_traits const be_lp64;
 	};
-
-	class access
-	{
-	public:
-		template<class ArchiveT, class T>
-		static void call_archive (ArchiveT& ar, T const& obj, unsigned version)
-		{
-			const_cast<T&> (obj).archive (ar, version);
-		}
-
-		template<class ArchiveT, class T>
-		static void call_serialize (ArchiveT& ar, T const& obj, unsigned version)
-		{
-			const_cast<T&> (obj).serialize (ar, version);
-		}
-	};
 	
 	template<bool Condition, class T>
 	struct enable_if {};
@@ -113,29 +99,81 @@ namespace pulmotor
 		typedef T type;
 	};
 
-	template<class T> struct version {
-		static int const value = 0;
-	};
-	template<class T> struct track_version {
-		static bool const value = true;
+	template<class T> struct class_version {
+		static int const value = version_default;
 	};
 	
-#define PULMOTOR_ARCHIVE_VER(T, v) template<> struct version<T> { enum { value = v }; }
+	template<class T, bool HasMember = false> struct get_version_impl {
+		static const int value = pulmotor::class_version<T>::value;
+	};
 	
-#define PULMOTOR_ARCHIVE_NOVER(T) template<> struct track_version<T> { enum { value = 0 }; }
-#define PULMOTOR_ARCHIVE_NOVER_TEMPLATE1(T) template<class TT> struct track_version< T < TT > > { enum { value = 0 }; }
-#define PULMOTOR_ARCHIVE_NOVER_TEMPLATE2(T) template<class TT1, class TT2> struct track_version< T < TT1, TT2 > > { enum { value = 0 }; }
+	template<class T> struct get_version_impl<T, true> {
+		static const int value = T::version;
+	};
 	
-
+	template<class T> struct has_version_member {
+		template<class U, int N=U::version> struct tester { tester (int a = T::version) {} };
+		template<class U> static char test(tester<U> const*);
+		template<class U> static long test(...);
+		
+		static const bool value = sizeof(test<T>(0)) == sizeof(char);
+	};
+	
+	template<class T> struct get_version {
+		typedef typename std::remove_cv<T>::type clean;
+		static const int value = get_version_impl<clean, has_version_member<clean>::value>::value;
+	};
+	
+#define PULMOTOR_ARCHIVE_VER(T, v) template<> struct ::pulmotor::class_version<T> { enum { value = v }; }
+	
 	template<class T>
+	struct clean_type
+	{
+		typedef typename std::remove_cv<T>::type type;
+	};
+	
+	template<bool Constructed, class T>
 	struct memblock_t
 	{
-		memblock_t (T const* p, size_t cnt) : addr ((uintptr_t)p), count (cnt) {}
+		explicit memblock_t (T const* p, size_t cnt) : addr ((uintptr_t)p), count (cnt) {}
+		
+		T* ptr_at (size_t index) const { return (T*)addr + index; }
+		
 		uintptr_t	addr;
 		size_t		count;
 	};
+	template<bool Constructed = true, class T>
+	memblock_t<Constructed, T> inline memblock (T const* p, size_t cnt) { return memblock_t<Constructed, T> (p, cnt); }
+
+	template<class T> struct is_memblock : public std::false_type {};
+	template<class T, bool Constr> struct is_memblock<memblock_t<Constr, T> > : public std::true_type {};
+	
+	
+	typedef char version_t;
+	
+	
 	template<class T>
-	memblock_t<T> inline memblock (T const* p, size_t cnt) { return memblock_t<T> (p, cnt); }
+	struct nv_impl
+	{
+		char const* name;
+		T const& obj;
+		
+		nv_impl(char const* name_, T const& o) : name(name_), obj(o) {}
+		nv_impl(nv_impl const& o) : name(o.name), obj(o.obj) {}
+	};
+	
+	template<class T>
+	inline nv_impl<T> make_nv(char const* name, T const& o)
+	{
+		return nv_impl<T> (name, o);
+	}
+	
+#define nv1(x) ::pulmotor::make_nv(#x, x)
+#define nv(x) nv1(x)
+#define nv_(n,x) ::pulmotor::make_nv(n, x)
+	
+	template<class T> struct is_nvp : public std::false_type {};
+	template<class T> struct is_nvp<nv_impl<T>> : public std::true_type {};
 	
 	
 	template<class AsT, class ActualT>
@@ -148,6 +186,7 @@ namespace pulmotor
 	template<class AsT, class ActualT>
 	inline as_holder<AsT, ActualT> as (ActualT& act)
 	{
+		// Actual may be const qualified. We actually want that so that as works when writing, with const types
 		return as_holder<AsT, ActualT> (act);
 	}
 	

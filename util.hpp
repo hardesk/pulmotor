@@ -14,6 +14,16 @@
 
 namespace pulmotor {
 
+std::string abi_demangle(char const* name);
+	
+template<class T>
+inline std::string readable_name ()
+{
+	typedef typename std::remove_cv<T>::type clean_t;
+	return abi_demangle (typeid(clean_t).name());
+}
+	
+
 template<class T>
 struct short_type_name { };
 	

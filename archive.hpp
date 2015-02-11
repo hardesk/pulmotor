@@ -18,40 +18,25 @@
 #include <map>
 #include <typeinfo>
 #include <string>
+#include <iostream>
 
 #include "stream_fwd.hpp"
 #include "stream.hpp"
 #include "util.hpp"
 
+#include <stir/filesystem.hpp>
+
 namespace pulmotor {
 	
-template<class ArchiveT, class T>
+template<int FlagsT = 0, class ArchiveT, class T>
 void archive (ArchiveT& ar, T const& obj);
+template<class ArchiveT, class T>
+void archive_construct (ArchiveT& ar, T* p, unsigned long version);
 	
-typedef u8 version_t;
-
-template<class T>
-struct is_memblock_t { enum { value = false }; };
-template<class T>
-struct is_memblock_t<memblock_t<T> > { enum { value = true }; };
-
+template<class ArchiveT, class T>
+void select_archive_construct(ArchiveT& ar, T* o, unsigned version);
 	
-template<class T>
-struct nv_impl
-{
-	char const* name;
-	T& obj;
-	
-	nv_impl(char const* name_, T& o) : name(name_), obj(o) {}
-};
 
-#define nv1(x) ::pulmotor::nv_impl<decltype(x)>(#x, x)
-#define nv(x) nv1(x)
-#define nv_(n,x) ::pulmotor::nv_impl<decltype(x)>(n, x)
-
-template<class T> struct is_nvp : public std::false_type {};
-template<class T> struct is_nvp<nv_impl<T>> : public std::true_type {};
-	
 template<class ArchiveT, class T>
 struct has_archive_fun
 {
@@ -93,9 +78,9 @@ struct has_archive_save_construct
 	template<class U> static char test(tester<U, ArchiveT, &U::archive_save_construct> const*);
 	template<class U> static long test(...);
 	
-	static const int value = sizeof(test<T>(0)) == sizeof(char);
+	static const bool value = sizeof(test<T>(0)) == sizeof(char);
 };
-		
+
 struct pulmotor_archive
 {
 	pulmotor_archive() {}
@@ -113,15 +98,15 @@ struct pulmotor_archive
 };
 	
 template<class T, class... DataT>
-object_context<T, DataT...> with_ctx (T& o, DataT... data)
+object_context<T, DataT...> with_ctx (T& o, DataT&&... data)
 {
-	return object_context<T, DataT...> (o, data...);
+	return object_context<T, DataT...> (o, std::forward<DataT> (data)...);
 }
 	
-template<class BaseT, class TupleT>
+template<class BaseT, class CtxT>
 class archive_with_context : public pulmotor_archive, object_context_tag
 {
-	typedef TupleT context_t;
+	typedef CtxT context_t;
 	
 	BaseT& m_base;
 	context_t const& m_ctx;
@@ -143,8 +128,8 @@ public:
 	
 	void object_name(char const* name) { m_base.object_name (name); }
 	
-	
-	void do_version (version_t& ver) { m_base.do_version(ver); }
+	template<class T>
+	void do_version (version_t& ver) { m_base.template do_version<T>(ver); }
 	
 	template<int Align, class T>
 	void write_basic (T a) { m_base.template write_basic<Align>(a); }
@@ -172,8 +157,10 @@ public:
 	enum { is_reading = 1, is_writing = 0 };
 	std::error_code ec;
 	
+	template<class T>
 	void do_version (version_t& ver) {
-		read_basic<1> (ver);
+		if ((int)ver != pulmotor::version_dont_track)
+			read_basic<1> (ver);
 	}
 	
 	template<int Align, class T>
@@ -219,8 +206,10 @@ public:
 	
 	std::error_code ec;
 	
+	template<class T>
 	void do_version (version_t& ver) {
-		write_basic<1> (ver);
+		if ((int)ver != pulmotor::version_dont_track)
+			write_basic<1> (ver);
 	}
 
 	template<int Align, class T>
@@ -276,10 +265,19 @@ public:
 	
 	void object_name(char const* name) { m_name = name; }
 	
+	template<class T>
 	void do_version (version_t& ver) {
 		size_t off = offset();
-		m_actual_arch.do_version (ver);
-		print_name ("__version", ver, off);
+		
+		int codeVer = (int)ver;
+		
+		m_actual_arch.template do_version<T> (ver);
+		
+		std::string name = readable_name<T> ();
+		if (codeVer != pulmotor::version_dont_track)
+			print_name (("__version '" + name + "'").c_str(), ver, off);
+		else
+			print_name (("not tracking version for '" + name + "'").c_str(), (int)get_version<T>::value, off);
 	}
 	
 	template<class T>
@@ -289,7 +287,8 @@ public:
 		snprintf (buf, sizeof(buf), "%*s0x%08x %s (%s)", m_indent*2, "",
 				  (int)off,
 				  name ? name : "",
-				  short_type_name<typename std::remove_cv<T>::type>::name
+				  readable_name<T> ().c_str()
+//				  short_type_name<typename std::remove_cv<T>::type>::name
 		);
 		m_out << buf << std::to_string(data) << std::endl;
 	}
@@ -323,7 +322,7 @@ public:
 	{
 		char buf[128];
 		snprintf (buf, sizeof(buf), "%*s0x%08x data, %d bytes (%7.1fkB)\n", m_indent*2, "",
-				  offset(), (int)size, size / 1024.0f);
+				  (int)offset(), (int)size, size / 1024.0f);
 		m_out << buf;
 
 		m_actual_arch.read_data (src, size);
@@ -341,9 +340,11 @@ public:
 	enum { is_reading = 1, is_writing = 0 };
 	
 	memory_read_archive (u8 const* ptr, size_t s) : data_ (ptr), size_(s), current_(0) {}
-	
+
+	template<class T>
 	void do_version (version_t& ver) {
-		read_basic<1> (ver);
+		if ((int)ver != pulmotor::version_dont_track)
+			read_basic<1> (ver);
 	}
 
 	template<int Align, class T>
@@ -373,8 +374,10 @@ public:
 	
 	memory_write_archive (memory_archive_container_t& c) : cont_ (c) {}
 	
+	template<class T>
 	void do_version (version_t& ver) {
-		write_basic<1> (ver);
+		if ((int)ver != pulmotor::version_dont_track)
+			write_basic<1> (ver);
 	}
 	
 	template<int Align, class T>
@@ -416,15 +419,17 @@ inline void call_archive_member_impl (ArchiveT& ar, T& obj, unsigned long versio
 }
 
 template<class ArchiveT, class T>
-inline void call_archive_member_impl (ArchiveT& ar, T& obj, unsigned long version, std::integral_constant<int, 1>)
+inline void call_archive_member_impl (ArchiveT& ar, T const& obj, unsigned long version, std::integral_constant<int, 1>)
 {
-	access::call_archive (ar, obj, (unsigned)version);
+	const_cast<T&>(obj).archive (ar, (unsigned)version);
+	//	access::call_archive (ar, obj, (unsigned)version);
 }
 
 template<class ArchiveT, class T>
-inline void call_archive_member_impl (ArchiveT& ar, T& obj, unsigned long version, std::integral_constant<int, 2>)
+inline void call_archive_member_impl (ArchiveT& ar, T const& obj, unsigned long version, std::integral_constant<int, 2>)
 {
-	access::call_serialize(ar, obj, (unsigned)version);
+	const_cast<T&>(obj).serialize (ar, (unsigned)version);
+	//	access::call_serialize(ar, obj, (unsigned)version);
 }
 
 template<class ArchiveT, class T>
@@ -442,33 +447,37 @@ inline void archive (ArchiveT& ar, T& obj, unsigned long version)
 	call_archive_member_impl (ar, obj, version, has_arch_or_ser_t());
 }
 	
-template<class ArchiveT, class T>
+#define REDIRECT_ARCHIVE(ar, obj, version) \
+	archive (ar, *const_cast<typename std::remove_cv<T>::type*>(&obj), (unsigned)version)
+	
+/*template<class ArchiveT, class T>
 inline void redirect_archive (ArchiveT& ar, T const& obj, unsigned version)
 {
 	typedef typename std::remove_cv<T>::type clean_t;
 	archive (ar, *const_cast<clean_t*>(&obj), version);
-}
+}*/
 
-// T is a class
+// T is a class (READING)
 template<class ArchiveT, class T>
 inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version, true_t, std::integral_constant<int, 1>)
 {
 	version_t file_version = version;
-	if (track_version<typename std::remove_cv<T>::type>::value)
-		ar.do_version (file_version);
+	//	if (get_version<T>::value != pulmotor::version_dont_track)
+	ar.template do_version<T> (file_version);
 	ar.begin_object();
-	redirect_archive (ar, obj, file_version);
+	REDIRECT_ARCHIVE (ar, obj, file_version);
 	ar.end_object();
 }
 
+// T is a class (WRITING)
 template<class ArchiveT, class T>
 inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version, false_t, std::integral_constant<int, 1>)
 {
 	version_t file_version = version;
-	if (track_version<typename std::remove_cv<T>::type>::value)
-		ar.do_version (file_version);
+	//	if (get_version<T>::value != pulmotor::version_dont_track)
+	ar.template do_version<T> (file_version);
 	ar.begin_object();
-	redirect_archive (ar, obj, version);
+	REDIRECT_ARCHIVE (ar, obj, version);
 	ar.end_object();
 }
 
@@ -488,50 +497,63 @@ inline void dispatch_archive_impl (ArchiveT& ar, T const& obj, unsigned version,
 }
 
 // T is a wrapped pointer
-	template<class ArchiveT, class T>
-	inline void memblock_archive_impl (ArchiveT& ar, T* p, size_t count, unsigned version, true_t, true_t /*is_fundamental*/) {
-		ar.read_data ((void*)p, count * sizeof(T));
+	template<class ArchiveT, class T, bool AnyContruct>
+	inline void memblock_archive_impl (ArchiveT& ar, memblock_t<AnyContruct, T> const& mb, unsigned version, true_t, true_t /*is_fundamental*/) {
+		ar.read_data ((void*)mb.addr, mb.count * sizeof(T));
+	}
+	
+	template<class ArchiveT, class T, bool AnyContruct>
+	inline void memblock_archive_impl (ArchiveT& ar, memblock_t<AnyContruct, T> const& mb, unsigned version, false_t, true_t /*is_fundamental*/) {
+		ar.write_data ((void*)mb.addr, mb.count * sizeof(T));
 	}
 	
 	template<class ArchiveT, class T>
-	inline void memblock_archive_impl (ArchiveT& ar, T* p, size_t count, unsigned version, false_t, true_t /*is_fundamental*/) {
-		ar.write_data ((void*)p, count * sizeof(T));
-	}
-	
-	template<class ArchiveT, class T>
-	inline void memblock_archive_impl (ArchiveT& ar, T* p, size_t count, unsigned version, true_t, false_t) {
+	inline void memblock_archive_impl (ArchiveT& ar, memblock_t<true, T> const& mb, unsigned version, true_t /*is_reading*/, false_t) {
 		version_t file_version = version;
-		if (track_version<typename std::remove_cv<T>::type>::value)
-			ar.do_version (file_version);
+//		if (get_version<T>::value != version_dont_track)
+		ar.template do_version<memblock_t<true, T>> (file_version);
 		
 		ar.begin_array();
-		for (size_t i=0; i<count; ++i)
-			redirect_archive(ar, p[i], version);
+		for (size_t i=0; i<mb.count; ++i)
+			archive<1>(ar, *mb.ptr_at(i));
+		ar.end_array();
+	}
+
+	
+	template<class ArchiveT, class T>
+	inline void memblock_archive_impl (ArchiveT& ar, memblock_t<false, T> const& mb, unsigned version, true_t /*is_reading*/, false_t) {
+		version_t file_version = version;
+		//		if (get_version<T>::value != version_dont_track)
+		ar.template do_version<memblock_t<false, T>> (file_version);
+		
+		ar.begin_array();
+		for (size_t i=0; i<mb.count; ++i)
+			select_archive_construct(ar, mb.ptr_at(i), version);
 		ar.end_array();
 	}
 	
-	template<class ArchiveT, class T>
-	inline void memblock_archive_impl (ArchiveT& ar, T* p, size_t count, unsigned version, false_t /*is_reading*/, false_t /*is_fundamental*/) {
+	template<class ArchiveT, class T, bool Constructed>
+	inline void memblock_archive_impl (ArchiveT& ar, memblock_t<Constructed, T> const& mb, unsigned version, false_t /*is_reading*/, false_t /*is_fundamental*/) {
 		version_t file_version = version;
-		if (track_version<typename std::remove_cv<T>::type>::value)
-			ar.do_version (file_version);
+//		if (get_version<T>::value != version_dont_track)
+		ar.template do_version<memblock_t<Constructed, T>> (file_version);
 		
 		ar.begin_array();
-		for (size_t i=0; i<count; ++i)
-			redirect_archive(ar, p[i], version);
+		for (size_t i=0; i<mb.count; ++i)
+			archive<1>(ar, *mb.ptr_at(i));
 		ar.end_array();
 	}
 	
 	
-template<class ArchiveT, class T, class AnyT>
-inline void dispatch_archive_impl (ArchiveT& ar, memblock_t<T> const& w, unsigned version, AnyT, std::integral_constant<int, 2>)
+template<class ArchiveT, bool Constructed, class T, class AnyT>
+inline void dispatch_archive_impl (ArchiveT& ar, memblock_t<Constructed, T> const& w, unsigned version, AnyT, std::integral_constant<int, 2>)
 {
 	if (w.addr != 0 && w.count != 0)
 	{
 		typedef std::integral_constant<bool, ArchiveT::is_reading> is_reading_t;
 		typedef std::integral_constant<bool, std::is_fundamental<T>::value> is_fund_t;
 		
-		memblock_archive_impl (ar, (T*)w.addr, w.count, version, is_reading_t(), is_fund_t());
+		memblock_archive_impl (ar, w, version, is_reading_t(), is_fund_t());
 	}
 }
 
@@ -549,6 +571,7 @@ inline void dispatch_archive_impl (ArchiveT& ar, T const (&a)[N], unsigned versi
 	ar.begin_array();
 	for (size_t i=0; i<N; ++i)
 		archive (ar, a[i]);
+	//		operator| (ar, a[i]);
 	ar.end_array();
 }
 
@@ -642,7 +665,9 @@ inline void dispatch_archive_impl (ArchiveT& ar, T const* p, unsigned version, f
 template<class ArchiveT, class T>
 inline void dispatch_archive_impl (ArchiveT& ar, T* const& p, unsigned version, true_t, std::integral_constant<int, 4>)
 {
-	char* ps = new char[sizeof(T)];
+	struct alignas(T) object_holder { char data_[sizeof(T)]; };
+	object_holder* ps = new object_holder;
+//	printf("allocated %u at %p\n", (int)sizeof(object_holder), ps);
 	select_archive_construct(ar, (T*)ps, version);
 	const_cast<T*&> (p) = (T*)ps;
 }
@@ -662,6 +687,7 @@ inline void dispatch_archive_impl (ArchiveT& ar, nv_impl<T> const& p, unsigned v
 	// TODO: lookup by name?
 //	printf("de-serializing %s %s\n", p.name, typeid(p.obj).name());
 	ar.object_name (p.name);
+	//	operator| (ar, p.obj);
 	archive (ar, p.obj);
 	ar.object_name (NULL);
 }
@@ -673,48 +699,82 @@ inline void dispatch_archive_impl (ArchiveT& ar, nv_impl<T> const& p, unsigned v
 	// if we want to save name, do it as separate fields
 	// printf("serializing %s %s\n", p.name, typeid(p.obj).name());
 	ar.object_name (p.name);
+	//	operator| (ar, p.obj);
 	archive (ar, p.obj);
 	ar.object_name (NULL);
 }
 	
-template<class ArchiveT, class T>
-inline void archive (ArchiveT& ar, T const& obj)
-{
-	typedef typename std::remove_cv<T>::type clean_t;
-	typedef typename is_nvp<clean_t>::type is_nvp_t;
-
-	typedef
-		typename boost::mpl::if_< is_nvp_t, std::integral_constant<int, 5>,
-			typename boost::mpl::if_< std::is_array<clean_t>, std::integral_constant<int, 3>,
-				typename boost::mpl::if_< std::is_pointer<clean_t>, std::integral_constant<int, 4>,
-					typename boost::mpl::if_< std::is_enum<clean_t>, std::integral_constant<int, 0>,
-						typename boost::mpl::if_< std::is_fundamental<clean_t>, std::integral_constant<int, 0>,
-							typename boost::mpl::if_< is_memblock_t<clean_t>, std::integral_constant<int, 2>,
-							std::integral_constant<int, 1> >::type
-						>::type
-					>::type
-				>::type
-			>::type
-	>::type object_type_t;
-	
-	typedef std::integral_constant<bool, ArchiveT::is_reading> is_reading_t;
-	
-	unsigned code_version = version<clean_t>::value;
-	dispatch_archive_impl (ar, obj, code_version, is_reading_t(), object_type_t() );
-}
-	
 template<class ArchiveT, bool IsContextCarrier>
-	struct reduce_archive_helper { typedef ArchiveT type; };
-	
+struct reduce_archive_helper { typedef ArchiveT type; };
+
 template<class ArchiveT>
-	struct reduce_archive_helper<ArchiveT, true> { typedef typename ArchiveT::base_t type; };
-	
+struct reduce_archive_helper<ArchiveT, true> { typedef typename ArchiveT::base_t type; };
+
 template<class ArchiveT>
 struct reduce_archive
 {
 	typedef typename reduce_archive_helper<ArchiveT, is_context_carrier<ArchiveT>::value>::type type;
 };
+
 	
+template<int FlagsT, class ArchiveT, class T>
+inline void archive (ArchiveT& ar, T const& obj)
+{
+	typedef std::integral_constant<bool, ArchiveT::is_reading> is_reading_t;
+	
+	typedef typename clean_type<T>::type clean_t;
+	typedef typename is_nvp<clean_t>::type is_nvp_t;
+	
+	typedef typename boost::mpl::if_< is_nvp_t, std::integral_constant<int, 5>,
+	typename boost::mpl::if_< std::is_array<clean_t>, std::integral_constant<int, 3>,
+		typename boost::mpl::if_< std::is_pointer<clean_t>, std::integral_constant<int, 4>,
+			typename boost::mpl::if_< std::is_enum<clean_t>, std::integral_constant<int, 0>,
+				typename boost::mpl::if_< std::is_fundamental<clean_t>, std::integral_constant<int, 0>,
+					typename boost::mpl::if_< is_memblock<clean_t>, std::integral_constant<int, 2>,
+					std::integral_constant<int, 1> >::type
+					>::type
+				>::type
+			>::type
+		>::type
+	>::type type_t;
+	
+	
+	unsigned code_version = (FlagsT & 0x01) ? version_dont_track : get_version<clean_t>::value;
+	dispatch_archive_impl (ar, obj, code_version, is_reading_t(), type_t() );
+}
+
+template<class ArchiveT, class T, class... Args>
+inline void archive (ArchiveT& ar, object_context<T, Args...> const& ctx)
+{
+	typedef object_context<T, Args...> ctx_t;
+	typedef typename reduce_archive<ArchiveT>::type base_t;
+	
+	archive_with_context<base_t, typename ctx_t::data_t> arch_ctx (ar, ctx.m_data);
+	archive (arch_ctx, ctx.m_object);
+}
+	
+template<bool IsReading> struct impl_archive_as {
+	template<class ArchiveT, class AsT, class ActualT>
+	static void arch (ArchiveT& ar, as_holder<AsT, ActualT> const& ash) {
+		AsT asObj;
+		archive (ar, asObj);
+		ash.m_actual = static_cast<ActualT>(asObj);
+	}
+};
+template<> struct impl_archive_as<false> {
+	template<class ArchiveT, class AsT, class ActualT>
+	static void arch (ArchiveT& ar, as_holder<AsT, ActualT> const& ash) {
+		AsT asObj = static_cast<AsT> (ash.m_actual);
+		archive (ar, asObj);
+	}
+};
+
+template<class ArchiveT, class AsT, class ActualT>
+inline void archive (ArchiveT& ar, as_holder<AsT, ActualT> const& ash)
+{
+	impl_archive_as<ArchiveT::is_reading>::arch (ar, ash);
+}
+
 template<class ArchiveT, class T>
 inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
 operator& (ArchiveT& ar, T const& obj)
@@ -723,28 +783,6 @@ operator& (ArchiveT& ar, T const& obj)
 	return ar;
 }
 
-template<class ArchiveT, class T, class... Args>
-inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
-operator& (ArchiveT& ar, object_context<T, Args...> const& ctx)
-{
-	typedef object_context<T, Args...> ctx_t;
-	typedef typename reduce_archive<ArchiveT>::type base_t;
-	
-	archive_with_context<base_t, typename ctx_t::data_t> arch_ctx (ar, ctx.m_data);
-	archive (arch_ctx, ctx.m_object);
-	return ar;
-}
-	
-template<class ArchiveT, class AsT, class ActualT>
-inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
-operator& (ArchiveT& ar, as_holder<AsT, ActualT> const& ash)
-{
-	AsT asObj = ash.m_actual;
-	archive (ar, asObj);
-	ash.m_actual = asObj;
-	return ar;
-}
-	
 template<class ArchiveT, class T>
 inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
 operator| (ArchiveT& ar, T const& obj)
@@ -752,30 +790,6 @@ operator| (ArchiveT& ar, T const& obj)
 	archive (ar, obj);
 	return ar;
 }
-
-template<class ArchiveT, class T, class... Args>
-inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
-operator| (ArchiveT& ar, object_context<T, Args...> const& ctx)
-{
-	typedef object_context<T, Args...> ctx_t;
-	typedef typename reduce_archive<ArchiveT>::type base_t;
-	
-	archive_with_context<base_t, typename ctx_t::data_t> arch_ctx (ar, ctx.m_data);
-	archive (arch_ctx, ctx.m_object);
-	return ar;
-}
-	
-template<class ArchiveT, class AsT, class ActualT>
-inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
-operator| (ArchiveT& ar, as_holder<AsT, ActualT> const& ash)
-{
-	AsT asObj = ash.m_actual;
-	archive (ar, asObj);
-	ash.m_actual = asObj;
-	return ar;
-}
-	
-		
 	
 /*
 template<class ArchiveT, class T>
@@ -802,6 +816,77 @@ inline ArchiveT&
 	return ar;
 }*/
 
+template<class T>
+size_t load_archive (stir::path const& pathname, T& obj, std::error_code& ec)
+{
+	stir::filesystem::input_buffer in (pathname, ec);
+	if (ec)
+		return 0;
+	
+	pulmotor::input_archive inA (in);
+	pulmotor::archive (inA, obj);
+
+	ec = inA.ec;
+	
+	return inA.offset();
+}
+
+template<class T>
+size_t load_archive_debug (stir::path const& pathname, T& obj, std::error_code& ec, bool doDebug)
+{
+	stir::filesystem::input_buffer in (pathname, ec);
+	if (ec)
+		return 0;
+	
+	pulmotor::input_archive inA (in);
+	if (doDebug)
+	{
+		pulmotor::debug_archive<pulmotor::input_archive> inAD(inA, std::cout);
+		pulmotor::archive (inAD, obj);
+	}
+	else
+		pulmotor::archive (inA, obj);
+	
+	ec = inA.ec;
+	
+	return inA.offset();
+}
+	
+template<class T>
+size_t save_archive (stir::path const& pathname, T& obj, std::error_code& ec)
+{
+	stir::filesystem::output_buffer out (pathname, ec);
+	if (ec)
+		return 0;
+	
+	pulmotor::output_archive outA (out);
+	pulmotor::archive (outA, obj);
+	
+	ec = outA.ec;
+	
+	return outA.offset();
+}
+
+template<class T>
+size_t save_archive_debug (stir::path const& pathname, T& obj, std::error_code& ec, bool doDebug)
+{
+	stir::filesystem::output_buffer out (pathname, ec);
+	if (ec)
+		return 0;
+	
+	pulmotor::output_archive outA (out);
+	if (doDebug)
+	{
+		pulmotor::debug_archive<pulmotor::output_archive> outAD(outA, std::cout);
+		pulmotor::archive (outAD, obj);
+	}
+	else
+		pulmotor::archive (outA, obj);
+	
+	ec = outA.ec;
+	
+	return outA.offset();
+}
 	
 
 }

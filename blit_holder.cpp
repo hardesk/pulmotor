@@ -14,7 +14,7 @@ void load_impl (char const* fname, size_t& size, u8*& data)
 		
 		if (i.get ())
 		{
-			u8* dat = new u8 [fs];
+			u8* dat = new u8 [(size_t)fs];
 			
 			std::error_code ec;
 			size_t was_read = i->read (dat, (size_t)fs, ec);

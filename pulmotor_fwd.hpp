@@ -16,9 +16,6 @@
 
 namespace pulmotor
 {
-
-template<class T> struct version;
-template<class T> struct track_version;
 	
 struct pulmotor_archive;
 //template<class T> struct ref_wrapper;
@@ -39,7 +36,7 @@ struct object_context : public object_context_tag
 {
 	typedef std::tuple<D...> data_t;
 	
-	object_context(T& o, D... data) : m_object(o), m_data(data...) { }
+	object_context(T& o, D&&... data) : m_object(o), m_data(std::forward<D>(data)...) { }
 
 	data_t m_data;
 	T& m_object;
@@ -50,28 +47,17 @@ template<class ArchiveT, class ObjectT> inline ArchiveT& blit (ArchiveT& ar, Obj
 template<class ArchiveT, class T>
 inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
 operator& (ArchiveT& ar, T const& obj);
-	
-template<class ArchiveT, class T, class... Args>
-inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
-operator& (ArchiveT& ar, object_context<T, Args...> const& ctx);
-	
-template<class ArchiveT, class AsT, class ActualT>
-inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
-operator& (ArchiveT& ar, as_holder<AsT, ActualT> const& ash);
-
-	
 
 template<class ArchiveT, class T>
 inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
 operator| (ArchiveT& ar, T const& obj);
-
+	
+	
 template<class ArchiveT, class T, class... Args>
-inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
-operator| (ArchiveT& ar, object_context<T, Args...> const& ctx);
+	void archive (ArchiveT& ar, object_context<T, Args...> const& ctx);
 	
 template<class ArchiveT, class AsT, class ActualT>
-inline typename pulmotor::enable_if<std::is_base_of<pulmotor_archive, ArchiveT>::value, ArchiveT>::type&
-operator| (ArchiveT& ar, as_holder<AsT, ActualT> const& ash);
+	void archive (ArchiveT& ar, as_holder<AsT, ActualT> const& ash);
 	
 	
 template<class ObjectT>
@@ -96,11 +82,11 @@ namespace util
 	inline T* fixup_pointers (pulmotor::blit_section_info* bsi);
 	
 	template<class T>
-	inline T* fixup_pointers (void* dataWithHeader);	
+	T* fixup_pointers (void* dataWithHeader);	
 	
 	inline void fixup (pulmotor::blit_section_info* bsi);
 	
-	inline size_t write_file (pp_char const* name, u8 const* ptr, size_t size);
+	//	inline size_t write_file (pp_char const* name, u8 const* ptr, size_t size);
 	
 	template<class T>
 	size_t write_file (pp_char const* name, T& root, target_traits const& tt, size_t sectionalign = 16);	

@@ -1216,7 +1216,7 @@ struct factory_creation
 template<class ObjectT>
 inline void serialize (blit_section& ar, ObjectT& obj, unsigned long version)
 {
-	access::call_serialize (static_cast<blit_section&> (ar), obj, version);
+	obj.serialize (ar, version);
 }
 
 // a structure
@@ -1399,7 +1399,7 @@ inline void blit_redirect (blit_section& ar, ObjectT& obj, unsigned flags_versio
 template<class ObjectT>
 inline blit_section& blit (blit_section& ar, ObjectT& obj)
 {
-	unsigned const ver = version<typename clean<ObjectT>::type>::value;
+	unsigned const ver = get_version<ObjectT>::value;
 	blit_redirect (ar, obj, ver);
 	return ar;
 }

@@ -23,28 +23,58 @@ void archive (ArchiveT& ar, std::list<T, AllocatorT>& v, unsigned version)
 		{
 			T e;
 			ar | e;
-			v.push_back (e);
+			v.emplace_back (e);
 		}
 	} else {
 		for (typename std::list<T, AllocatorT>::iterator it = v.begin (), end = v.end (); it != end; ++it)
 			ar | *it;
 	}
 }
+	
+template<bool TypeIsFundamental, bool IsReading>
+struct impl_archive_stdvector {
+	template<class ArchiveT, class T, class AllocatorT>
+	static void arch (ArchiveT& ar, std::vector<T, AllocatorT>& v, size_t sz, unsigned version) {
+		if (ArchiveT::is_reading)
+			v.resize (sz);
+		
+		ar & pulmotor::memblock (&*v.begin(), sz);
+	}
+};
 
+template<>
+struct impl_archive_stdvector<false, true> {
+	template<class ArchiveT, class T, class AllocatorT>
+	static void arch (ArchiveT& ar, std::vector<T, AllocatorT>& v, size_t sz, unsigned version) {
+		v.reserve (sz);
+		for (size_t i=0; i<sz; ++i) {
+			T t;
+			ar | t;
+			v.emplace_back(std::move(t));
+		}
+	}
+};
+
+template<>
+struct impl_archive_stdvector<false, false> {
+	template<class ArchiveT, class T, class AllocatorT>
+	static void arch (ArchiveT& ar, std::vector<T, AllocatorT>& v, size_t sz, unsigned version) {
+		for (size_t i=0; i<sz; ++i)
+			ar | v[i];
+	}
+};
+	
+	
 template<class ArchiveT, class T, class AllocatorT>
 void archive (ArchiveT& ar, std::vector<T, AllocatorT>& v, unsigned version)
 {
-	u32 sz = v.size ();
+	u32 sz = (u32)v.size ();
 	ar | sz;
-
-	if (ArchiveT::is_reading)
-		v.resize (sz);
-
-	if (std::is_fundamental<T>::value)
-		ar & pulmotor::memblock (&*v.begin(), sz);
-	else
-		for (size_t i=0; i<sz; ++i)
-			ar | v[i];
+	
+	impl_archive_stdvector<
+		std::is_fundamental<T>::value,
+		ArchiveT::is_reading
+	>::arch (ar, v, sz, version);
 }
 	
 template<class ArchiveT, class Key, class T, class Compare, class Allocator>
@@ -76,7 +106,7 @@ void std_map_archive (ArchiveT& ar, std::map<Key, T, Compare, Allocator>& v, uns
 	for (auto const& p : v)
 		ar | p;
 }
-	
+
 PULMOTOR_ARCHIVE_FREE_SPLIT(std::string)
 PULMOTOR_ARCHIVE_FREE_READ(std::string)
 {
@@ -92,5 +122,7 @@ PULMOTOR_ARCHIVE_FREE_WRITE(std::string)
 }
 
 }
+
+PULMOTOR_ARCHIVE_VER(std::string, pulmotor::version_dont_track);
 
 #endif

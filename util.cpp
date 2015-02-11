@@ -6,6 +6,8 @@
 #include <demangle.h>
 #endif
 
+#include <cxxabi.h>
+
 namespace pulmotor {
 	
 #ifdef __LITTLE_ENDIAN__
@@ -41,6 +43,16 @@ target_traits const target_traits::be_lp64 = { 8, true };
 	PULMOTOR_BN1(char16_t)
 	PULMOTOR_BN1(char32_t)
 	
+	
+std::string abi_demangle(char const* mangled)
+{
+	size_t len = 0;
+	int status = 0;
+	char* demangled = abi::__cxa_demangle (mangled, NULL, &len, &status);
+	std::string ret (status == 0 ? demangled : mangled);
+	free (demangled);
+	return ret;
+}
 	
 namespace util {
 
@@ -101,7 +113,7 @@ void set_offsets (void* data, std::pair<uintptr_t,uintptr_t> const* fixups, size
 			case 4:
 				{
 					u32* p = reinterpret_cast<u32*> (datap + fixups[i].first);
-					*p = (uintptr_t)fixups[i].second;
+					*p = (u32)fixups[i].second;
 					if (change_endianess)
 						swap_endian<sizeof(*p)> (p, 1);
 				}
@@ -109,7 +121,7 @@ void set_offsets (void* data, std::pair<uintptr_t,uintptr_t> const* fixups, size
 			case 8:
 				{
 					u64* p = reinterpret_cast<u64*> (datap + fixups[i].first);
-					*p = (uintptr_t)fixups[i].second;
+					*p = (u64)fixups[i].second;
 					if (change_endianess)
 						swap_endian<sizeof(*p)> (p, 1);
 				}
@@ -152,7 +164,7 @@ size_t read_file (pp_char const* name, u8* ptr, size_t size, std::error_code& ec
 	
 void read_file (pp_char const* name, std::vector<u8>& out, std::error_code& ec)
 {
-	if (size_t fl = get_file_size (name))
+	if (size_t fl = (size_t)get_file_size (name))
 	{
 		out.resize (fl);
 		size_t wasRead = read_file (name, out.data(), fl, ec);
