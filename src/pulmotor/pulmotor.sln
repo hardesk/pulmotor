@@ -1,0 +1,32 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 10.00
+# Visual C++ Express 2008
+Project("{8BC9CEB9-8B4A-11D0-8D11-00A0C91BC942}") = "stream_test.exe", "tests\bin\stream_test.exe", "{8A6394AC-4AB1-4F39-A2DF-89F25DAE5954}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "visual_studio", "visual_studio\visual_studio.vcproj", "{60423515-3E33-477A-971D-8C5B6DC23A64}"
+EndProject
+Project("{8BC9CEB9-8B4A-11D0-8D11-00A0C91BC942}") = "serialization_test.exe", "tests\bin\serialization_test.exe", "{4486B83F-C6B8-437D-9B17-26B5E360843B}"
+EndProject
+Project("{8BC9CEB9-8B4A-11D0-8D11-00A0C91BC942}") = "dynamic_array_test.exe", "_bin\dynamic_array_test.exe", "{9FDA8BB2-8CD5-457D-8048-C484E9A01D6B}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Win32 = Debug|Win32
+		Release|Win32 = Release|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8A6394AC-4AB1-4F39-A2DF-89F25DAE5954}.Debug|Win32.ActiveCfg = Debug
+		{8A6394AC-4AB1-4F39-A2DF-89F25DAE5954}.Release|Win32.ActiveCfg = Debug
+		{60423515-3E33-477A-971D-8C5B6DC23A64}.Debug|Win32.ActiveCfg = Debug|Win32
+		{60423515-3E33-477A-971D-8C5B6DC23A64}.Debug|Win32.Build.0 = Debug|Win32
+		{60423515-3E33-477A-971D-8C5B6DC23A64}.Release|Win32.ActiveCfg = Release|Win32
+		{60423515-3E33-477A-971D-8C5B6DC23A64}.Release|Win32.Build.0 = Release|Win32
+		{4486B83F-C6B8-437D-9B17-26B5E360843B}.Debug|Win32.ActiveCfg = Debug
+		{4486B83F-C6B8-437D-9B17-26B5E360843B}.Release|Win32.ActiveCfg = Debug
+		{9FDA8BB2-8CD5-457D-8048-C484E9A01D6B}.Debug|Win32.ActiveCfg = Debug
+		{9FDA8BB2-8CD5-457D-8048-C484E9A01D6B}.Release|Win32.ActiveCfg = Debug
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
