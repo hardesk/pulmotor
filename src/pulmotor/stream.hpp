@@ -22,37 +22,136 @@
 
 namespace pulmotor
 {
-	enum error_id
-	{
-		k_ok,
-		k_eof,
-		k_read_fail,
-		k_write_fail,
-		k_out_of_space,
 
-		k_error_id_count // number of error codes
+bool do_test();
+
+enum class error
+{
+	ok,
+	eof,
+	read_fail,
+	write_fail,
+	out_of_space,
+
+	count
+};
+
+struct endian
+{
+	union tester {
+		unsigned u;
+		char c[2];
 	};
 
-	inline bool is_le ()
+	static bool is_le() { return true; } // tester x; x.u=0x01; return x.c[0]==1; }
+	static bool is_be() { return false; } // tester x; x.u=0x01; return x.c[0]==0; }
+};
+
+PULMOTOR_ATTR_DLL char const* error_to_text( error code );
+PULMOTOR_ATTR_DLL int get_pagesize();
+
+class block_common
+{
+	block_common(block_common const& a) = delete;
+	block_common& operator=(block_common const& a) = delete;
+
+protected:
+	char* m_data;
+	fs_t m_bloff; // block offset in stream
+	size_t m_blsize, m_cur;
+
+	void zero() { m_data=nullptr; m_bloff=0; m_blsize=0; m_cur=0; }
+
+public:
+	block_common() { zero(); }
+	fs_t offset() const { return m_bloff + m_cur; }
+	size_t avail() { return m_blsize - m_cur; }
+	char* data() { return m_data + m_cur; }
+};
+
+class source : public block_common
+{
+protected:
+	virtual void make_available(std::error_code& ec) = 0;
+public:
+	void advance(size_t sz, std::error_code& ec);
+	size_t fetch(void* dest, size_t sz, std::error_code& ec);
+
+	virtual fs_t size() = 0;
+};
+
+class source_mmap : public source
+{
+public:
+	enum flags { ro, wr, rw };
+
+private:
+	void* m_mmap;
+	int m_fd;
+	size_t m_mmapblock;
+	fs_t m_filesize;
+	flags m_flags;
+
+	void reset()
 	{
-		unsigned value = 0x01;
-		return *(char const*)&value == 0x01;
+		m_mmap=nullptr;
+		m_fd=-1;
+		m_mmapblock=0;
+		m_filesize=0;
 	}
 
-	inline bool is_be ()
-	{
-		unsigned value = 0x01;
-		return *(char const*)&value == 0x00;
-	}
-	
+	virtual void make_available(std::error_code& ec);
 
-	PULMOTOR_ATTR_DLL char const* get_error_id_text( error_id id );
+public:
+	source_mmap();
+	~source_mmap();
+
+	void map(path_char const* path, flags fl, std::error_code& ec, fs_t off = 0, size_t mmap_block_size = 0);
+	void unmap(std::error_code& ec);
+
+	virtual fs_t size();
+};
+
+class source_istream : public source
+{
+	size_t m_cache_size;
+	fs_t m_file_size;
+	std::istream& m_stream;
+
+	virtual void make_available(std::error_code& ec);
+
+public:
+	source_istream(std::istream& s, size_t cache_size = 0);
+	~source_istream();
+
+	void prefetch();
+
+	virtual fs_t size();
+};
+
+class sink
+{
+public:
+	virtual void put(char const* data, size_t size) = 0;
+};
+
+class sink_ostream : public sink
+{
+	std::ostream& m_stream;
+
+public:
+	sink_ostream(std::ostream& os);
+	~sink_ostream();
+
+	void put(char const* data, size_t size);
+};
+
 
 	// buffer -> [coder] -> formatter
 	// formatter <- [coder] <- buffer
-
+	
 	//
-	class PULMOTOR_ATTR_DLL basic_input_buffer : boost::noncopyable
+	class PULMOTOR_ATTR_DLL basic_input_buffer
 	{
 	public:
 		virtual ~basic_input_buffer() = 0;
@@ -98,7 +197,7 @@ namespace pulmotor
 	class PULMOTOR_ATTR_DLL cfile_output_buffer : public basic_output_buffer
 	{
 	public:
-		cfile_output_buffer (pulmotor::pp_char const* file_name, std::error_code& ec);
+		cfile_output_buffer (pulmotor::path_char const* file_name, std::error_code& ec);
 		virtual ~cfile_output_buffer();
 
 		virtual size_t write (void const* src, size_t count, std::error_code& ec);
@@ -120,7 +219,7 @@ namespace pulmotor
 	class PULMOTOR_ATTR_DLL cfile_input_buffer : public basic_input_buffer
 	{
 	public:
-		cfile_input_buffer (pulmotor::pp_char const* file_name, std::error_code& ec);
+		cfile_input_buffer (pulmotor::path_char const* file_name, std::error_code& ec);
 		virtual ~cfile_input_buffer();
 
 		virtual size_t read (void* dest, size_t count, std::error_code& ec);
@@ -207,20 +306,21 @@ namespace pulmotor
 	};
 
 	// global input/output factory functions
-	file_size_t get_file_size (pulmotor::pp_char const* file_name);
-	std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_plain_input (pulmotor::pp_char const* file_name);
-	std::auto_ptr<basic_output_buffer> PULMOTOR_ATTR_DLL create_plain_output(pulmotor::pp_char const* file_name);	
-	inline std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_input (pulmotor::pp_char const* file_name) { return create_plain_input (file_name); }
+	fs_t file_size (pulmotor::path_char const* file_name, std::error_code& ec);
+	inline fs_t file_size (pulmotor::path_char const* file_name) { std::error_code ec; fs_t s = file_size(file_name, ec); return s; }
+	std::unique_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_plain_input (pulmotor::path_char const* file_name);
+	std::unique_ptr<basic_output_buffer> PULMOTOR_ATTR_DLL create_plain_output(pulmotor::path_char const* file_name);	
+	inline std::unique_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_input (pulmotor::path_char const* file_name) { return create_plain_input (file_name); }
 	
 #if PULMOTOR_STIR_PATH_SUPPORT
 	// global input/output factory functions
-	inline file_size_t get_file_size (stir::path const& file_name)
+	inline fs_t get_file_size (stir::path const& file_name)
 	{ return get_file_size (file_name.c_str()); }
-	inline std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_plain_input (stir::path const& file_name)
+	inline std::unique_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_plain_input (stir::path const& file_name)
 	{ return create_plain_input (file_name.c_str()); }
-	inline std::auto_ptr<basic_output_buffer> PULMOTOR_ATTR_DLL create_plain_output(stir::path const& file_name)
+	inline std::unique_ptr<basic_output_buffer> PULMOTOR_ATTR_DLL create_plain_output(stir::path const& file_name)
 	{ return create_plain_output (file_name.c_str()); }
-	inline std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_input (stir::path const& file_name)
+	inline std::unique_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_input (stir::path const& file_name)
 	{ return create_plain_input (file_name.c_str()); }
 #endif
 }

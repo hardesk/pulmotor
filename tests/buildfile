@@ -1,0 +1,16 @@
+#config.import.doctest1=../../../../stir.git/externals/b_doctest
+
+doctest/
+{
+	lib{doctest}: doctest/hxx{doctest.h}
+	{
+		cxx.export.poptions = "-I$src_base/doctest"
+	}
+}
+
+import LIB = lib{pulmotor}
+
+exe{pulmotor_tests}: cxx{*.tests...} doctest/lib{doctest} $LIB
+
+./: exe{pulmotor_tests}
+

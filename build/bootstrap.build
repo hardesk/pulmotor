@@ -1,0 +1,7 @@
+project = pulmotor
+
+#using version
+using config
+using test
+using install
+#using dist

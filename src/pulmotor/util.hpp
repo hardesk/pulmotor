@@ -148,10 +148,10 @@ inline void swap_elements (void* ptr, size_t size, size_t count)
 void set_offsets (void* data, std::pair<uintptr_t,uintptr_t> const* fixups, size_t fixup_count, size_t ptrsize, bool change_endianess);
 void fixup_pointers (void* data, uintptr_t const* fixups, size_t fixup_count);
 	
-size_t read_file (pp_char const* name, u8 const* ptr, size_t size);
-void read_file (pp_char const* name, std::vector<u8>& out, std::error_code& ec);	
+size_t read_file (path_char const* name, u8 const* ptr, size_t size);
+void read_file (path_char const* name, std::vector<u8>& out, std::error_code& ec);	
 
-size_t write_file (pp_char const* name, u8 const* ptr, size_t size);
+size_t write_file (path_char const* name, u8 const* ptr, size_t size);
 	
 }}
 

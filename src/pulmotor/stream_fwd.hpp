@@ -14,8 +14,8 @@ namespace pulmotor
 	template<class T> class PULMOTOR_ATTR_DLL basic_version;
 	class PULMOTOR_ATTR_DLL basic_header;
 
-	std::auto_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_plain_input (pp_char const* file_name);
-	std::auto_ptr<basic_output_buffer> PULMOTOR_ATTR_DLL create_plain_output (pp_char const* file_name);
+	std::unique_ptr<basic_input_buffer> PULMOTOR_ATTR_DLL create_plain_input (path_char const* file_name);
+	std::unique_ptr<basic_output_buffer> PULMOTOR_ATTR_DLL create_plain_output (path_char const* file_name);
 }
 
 #endif // PULMOTOR_CONTAINER_FWD_HPP_

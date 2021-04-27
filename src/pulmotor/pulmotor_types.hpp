@@ -60,14 +60,14 @@ namespace pulmotor
 	typedef std::false_type false_t;
 	
 #ifdef _WIN32
-	typedef wchar_t pp_char;
-	typedef std::wstring string;
+	typedef wchar_t path_char;
+	typedef std::wstring path_string;
 #else
-	typedef char pp_char;
-	typedef std::string string;
+	typedef char path_char;
+	typedef std::string path_string;
 #endif
 	
-	typedef u64 file_size_t;
+	typedef u64 fs_t;
 	
 	enum { header_size = 8 };
 	enum { version_dont_track = -1 };
@@ -150,7 +150,21 @@ namespace pulmotor
 	
 	
 	typedef char version_t;
-	
+
+	struct romu3
+	{
+		#define PULMOTOR_ROTL(d,lrot) ((d<<(lrot)) | (d>>(8*sizeof(d)-(lrot))))
+		uint64_t xState=0xe2246698a74e50e0ULL, yState=0x178cd4541df4e31cULL, zState=0x704c7122f9cfbd76ULL;
+		void seed(uint64_t a, uint64_t b,uint64_t c) { xState=a; yState=b; zState=c; }
+		uint64_t operator() () {
+		   uint64_t xp = xState, yp = yState, zp = zState;
+		   xState = 15241094284759029579u * zp;
+		   yState = yp - xp;  yState = PULMOTOR_ROTL(yState,12);
+		   zState = zp - yp;  zState = PULMOTOR_ROTL(zState,44);
+		   return xp;
+		}
+		unsigned r(unsigned range) { return uint64_t(unsigned(operator()())) * range >> (sizeof (unsigned)*8); }
+	};
 	
 	template<class T>
 	struct nv_impl

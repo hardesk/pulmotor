@@ -1,9 +1,7 @@
 #ifndef PULMOTOR_HPP_
 #define PULMOTOR_HPP_
 
-//#include "pulmotor_types.hpp"
-
-#ifdef _WIN32
+#if defined(_WIN32)
 #pragma warning (disable: 4275)
 #	if PULMOTOR_DLL
 #		if PULMOTOR_BUILD_DLL
@@ -21,6 +19,6 @@
 #endif
 
 #define PULMOTOR_UNUSED(x) ((void)x)
-#define PULMOTOR_STIR_PATH_SUPPORT 1
+//#define PULMOTOR_STIR_PATH_SUPPORT 1
 
 #endif

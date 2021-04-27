@@ -1,0 +1,13 @@
+cxx.std = latest
+
+using cxx
+
+hxx{*}: extension = hpp
+cxx{*}: extension = cpp
+
+#config.benchmark.exceptions=false
+#config.import.benchmark=$src_root/externals/benchmark/
+
+#info "in root, src_root: $src_root, src_base: $src_base, out_base: $out_base, out_root: $out_root"
+
+
