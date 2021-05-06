@@ -1,0 +1,3 @@
+: stream-tests 
+$* -nv 1>- == 0
+

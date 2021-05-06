@@ -16,7 +16,7 @@ bool make_temp_file(pulmotor::path_char const* path, size_t size)
 	return f.good();
 }
 
-TEST_CASE("stream input")
+TEST_CASE("pulmotor source")
 {
 	CHECK(make_temp_file(T_N, T_S));
 
@@ -42,6 +42,10 @@ TEST_CASE("stream input")
 		CHECK(ss.avail() == 0);
 		CHECK(fetched == T_S);
 		CHECK(memcmp(buffer, init.data(), T_S) == 0);
+
+		size_t pastEnd=ss.fetch(buffer, 100, ec);
+		CHECK(pastEnd == 0);
+		CHECK(memcmp(buffer, init.data(), T_S) == 0);
 		delete[] buffer;
 	};
 	
@@ -58,6 +62,14 @@ TEST_CASE("stream input")
 			CHECK(memcmp(buffer, init.data() + read, bs) == 0);
 			read+=fetched;
 		}
+		buffer[0]=1;
+		buffer[1]=2;
+
+		size_t pastEnd=ss.fetch(buffer, 2, ec);
+		CHECK(pastEnd == 0);
+		CHECK(buffer[0] == 1);
+		CHECK(buffer[1] == 2);
+
 		delete[] buffer;
 	};
 

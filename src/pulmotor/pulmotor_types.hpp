@@ -70,8 +70,27 @@ namespace pulmotor
 	typedef u64 fs_t;
 	
 	enum { header_size = 8 };
-	enum { version_dont_track = -1 };
-	enum { version_default = 0 };
+	enum : unsigned
+	{
+		version_dont_track = 0xffff'ffffu,
+		no_version = 0xffff'ffffu,
+		version_default = 0u,
+		
+		// u32 follows 'version' which specifies how much to advance stream (this u32 not included) to get to object data
+		// in other words how much unknown information is between the version and object
+		ver_flag_garbage_length = 0x80000000u,
+
+		// arbitraty "debug" string is present after (optional garbage length)
+		ver_flag_debug_string = 0x4000'0000u,
+		ver_debug_string_max_size = 0x100u,
+
+		// align object on an alignment address specified by archive
+		ver_flag_align_object = 0x20000000u,
+
+		// mask to get only the version part
+		ver_flag_mask = 0x00ffffffu
+   };
+		
 
 	class blit_section;
 	
@@ -303,6 +322,6 @@ namespace pulmotor
 		T*	debug_ptr_;
 #endif
 	};
-}
+} // pulmotor
 
 #endif // PULMOTOR_TYPES_HPP_

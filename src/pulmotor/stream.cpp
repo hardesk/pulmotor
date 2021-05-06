@@ -31,7 +31,7 @@ int get_pagesize()
 
 void source::advance(size_t sz, std::error_code& ec) {
 	while(1) {
-		if ((m_cur += sz) >= m_blsize) {
+		if ((m_cur += sz) > m_blsize) {
 			make_available(ec); 
 			if (ec) break;
 		} else
@@ -43,6 +43,11 @@ size_t source::fetch(void* dest, size_t sz, std::error_code& ec) {
 	size_t copied = 0;
 	while(1) {
 		size_t left = m_blsize - m_cur;
+		if (left == 0) {
+			make_available(ec); 
+			if (ec || offset() >= size()) break;
+			left = m_blsize - m_cur;
+		}
 		size_t capped = sz < left ? sz : left;
 		   
 		memcpy(dest, m_data + m_cur, capped);
@@ -69,9 +74,9 @@ sink_ostream::~sink_ostream()
 	m_stream.flush();
 }
 
-void sink_ostream::put(char const* data, size_t size)
+void sink_ostream::write(void const* data, size_t size, std::error_code& ec)
 {
-	m_stream.write(data, size);
+	m_stream.write((char const*)data, size);
 }
 
 inline std::error_code mk_ec(int err) { return std::make_error_code((std::errc)err); }
@@ -226,6 +231,17 @@ void source_istream::make_available(std::error_code& ec)
 fs_t source_istream::size()
 {
 	return m_file_size;
+}
+
+
+void source_buffer::make_available(std::error_code& ec)
+{
+	return;
+}
+
+fs_t source_buffer::size()
+{
+	return m_blsize;
 }
 
 __attribute__((noinline)) bool do_test1(source& s, size_t itsize) 

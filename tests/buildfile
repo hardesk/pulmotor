@@ -10,7 +10,15 @@ doctest/
 
 import LIB = lib{pulmotor}
 
-exe{pulmotor_tests}: cxx{*.tests...} doctest/lib{doctest} $LIB
+#exe{pulmotor_tests}: cxx{*.tests...} doctest/lib{doctest} $LIB
 
-./: exe{pulmotor_tests}
+for f: cxx{**.tests...}
+#for f: cxx{archive.tests...} cxx{stream.tests...}
+{
+	d=$directory($f)
+	n=$name($f)...
+	./: exe{$n}: $f doctest/lib{doctest} $LIB testscript{+$n}
+}
+
+#./: exe{pulmotor_tests}
 

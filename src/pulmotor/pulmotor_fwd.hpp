@@ -86,10 +86,10 @@ namespace util
 	
 	inline void fixup (pulmotor::blit_section_info* bsi);
 	
-	//	inline size_t write_file (pp_char const* name, u8 const* ptr, size_t size);
+	//	inline size_t write_file (path_char const* name, u8 const* ptr, size_t size);
 	
 	template<class T>
-	size_t write_file (pp_char const* name, T& root, target_traits const& tt, size_t sectionalign = 16);	
+	size_t write_file (path_char const* name, T& root, target_traits const& tt, size_t sectionalign = 16);	
 }
 
 }

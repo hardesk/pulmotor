@@ -129,10 +129,25 @@ public:
 	virtual fs_t size();
 };
 
+class source_buffer : public source
+{
+public:
+	source_buffer(char const* p, size_t sz)
+	{
+		m_data = const_cast<char*>(p);
+		m_bloff = 0;
+		m_blsize = sz;
+		m_cur = 0;
+	}
+	
+	fs_t size() override;
+	void make_available(std::error_code& ec) override;
+};
+
 class sink
 {
 public:
-	virtual void put(char const* data, size_t size) = 0;
+	virtual void write(void const* data, size_t size, std::error_code& ec) = 0;
 };
 
 class sink_ostream : public sink
@@ -143,7 +158,7 @@ public:
 	sink_ostream(std::ostream& os);
 	~sink_ostream();
 
-	void put(char const* data, size_t size);
+	void write(void const* data, size_t size, std::error_code& ec);
 };
 
 
