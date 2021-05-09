@@ -19,6 +19,7 @@
 #include <typeinfo>
 #include <string>
 #include <iostream>
+#include <unordered_map>
 
 #include "stream_fwd.hpp"
 #include "stream.hpp"
@@ -219,6 +220,44 @@ struct archive_read_util
 		}
 
 		return version & ver_flag_mask;
+	}
+};
+
+template<class Derived>
+struct archive_pointer_support
+{
+	enum { track_pointers = true };
+	Derived& self() { return *static_cast<Derived*>(this); }
+
+	std::unordered_map<void*, u32> m_ptrtoid;
+	std::unordered_map<u32, void*> m_idtoptr;
+
+	void restore_ptr(u32 id, void* obj) {
+		assert(m_idtoptr.find(id) == m_idtoptr.end());;
+
+		m_idtoptr.insert(std::make_pair(id, obj));
+		m_ptrtoid.insert(std::make_pair(obj, id));
+	}
+	u32 reg_ptr(void* obj) {
+		auto it = m_ptrtoid.find(obj);
+		if (it != m_ptrtoid.end())
+			return it->second;
+
+		u32 id = m_ptrtoid.size() + 1;
+		m_idtoptr.insert(std::make_pair(id, obj));
+		m_ptrtoid.insert(std::make_pair(obj, id));
+		return id;
+	}
+
+	u32 lookup_id(void* ptr) {
+		if (auto it = m_ptrtoid.find(ptr); it != m_ptrtoid.end())
+			return it->second;
+		return 0;
+	}
+	void* lookup_ptr(u32 id) {
+		if (auto it = m_idtoptr.find(id); it != m_idtoptr.end())
+			return it->second;
+		return nullptr;
 	}
 };
 
@@ -587,7 +626,11 @@ public:
 	}
 };
 
-struct archive_sink : public pulmotor_archive, public archive_write_util<archive_sink>, public archive_write_version_util<archive_sink>
+struct archive_sink
+	: public pulmotor_archive
+	, public archive_write_util<archive_sink>
+	, public archive_write_version_util<archive_sink>
+	, public archive_pointer_support<archive_sink>
 {
 	sink& sink_;
 	fs_t written_;
@@ -618,7 +661,11 @@ public:
 	}
 };
 
-struct archive_vector_out : public pulmotor_archive, public archive_write_util<archive_vector_out>, public archive_write_version_util<archive_vector_out>
+struct archive_vector_out
+	: public pulmotor_archive
+	, public archive_write_util<archive_vector_out>
+	, public archive_write_version_util<archive_vector_out>
+	, public archive_pointer_support<archive_vector_out>
 {
 	std::vector<char> data;
 
@@ -642,7 +689,10 @@ struct archive_vector_out : public pulmotor_archive, public archive_write_util<a
 	std::string str() const { return std::string(data.data(), data.size()); }
 };
 
-struct archive_vector_in : public pulmotor_archive, public archive_read_util<archive_vector_in>
+struct archive_vector_in
+	: public pulmotor_archive
+	, public archive_read_util<archive_vector_in>
+	, public archive_pointer_support<archive_vector_in>
 {
 	std::vector<char> data;
 	size_t m_offset = 0;

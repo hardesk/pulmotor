@@ -118,30 +118,15 @@ namespace pulmotor
 		typedef T type;
 	};
 
-	template<class T> struct class_version {
-		static int const value = version_default;
-	};
+	template<class T, class = void> struct has_version_member : std::false_type {};
+	template<class T>               struct has_version_member<T, std::void_t<char [(std::is_convertible<decltype(T::version), unsigned>::value) ? 1 : -1]> > : std::true_type {};
+
+	template<class T> struct class_version { static unsigned const value = version_default; };
 	
-	template<class T, bool HasMember = false> struct get_version_impl {
-		static const int value = pulmotor::class_version<T>::value;
-	};
+	template<class T, bool HasMember = false>	struct get_version_impl				: std::integral_constant<unsigned, pulmotor::class_version<T>::value> {};
+	template<class T>							struct get_version_impl<T, true>	: std::integral_constant<unsigned, T::value> {};
 	
-	template<class T> struct get_version_impl<T, true> {
-		static const int value = T::version;
-	};
-	
-	template<class T> struct has_version_member {
-		template<class U, int N=U::version> struct tester { tester (int a = T::version) {} };
-		template<class U> static char test(tester<U> const*);
-		template<class U> static long test(...);
-		
-		static const bool value = sizeof(test<T>(0)) == sizeof(char);
-	};
-	
-	template<class T> struct get_version {
-		typedef typename std::remove_cv<T>::type clean;
-		static const int value = get_version_impl<clean, has_version_member<clean>::value>::value;
-	};
+	template<class T> struct get_version : std::integral_constant<unsigned, get_version_impl<T>::value> {};
 	
 #define PULMOTOR_ARCHIVE_VER(T, v) template<> struct ::pulmotor::class_version<T> { enum { value = v }; }
 	

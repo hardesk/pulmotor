@@ -27,11 +27,51 @@ struct basic_tester {
 	}
 };
 
-struct A {
-	int x;
+namespace test_types
+{
+	struct A {
+		int x;
 
-	template<class Ar> void serialize(Ar& ar, unsigned version) { ar | x; }
-};
+		bool operator==(A const& a) const = default;
+		template<class Ar> void serialize(Ar& ar, unsigned version) { ar | x; }
+	};
+
+	struct B {
+		A a;
+		int y;
+
+		bool operator==(B const&) const = default;
+		template<class Ar> void serialize(Ar& ar, unsigned version) { ar | a | y; }
+	};
+
+	struct C {
+		int x[2];
+
+		bool operator==(C const&) const = default;
+		template<class Ar> void serialize(Ar& ar, unsigned version) { ar | x; }
+	};
+
+	struct P {
+		A* a;
+		int y;
+		int* z;
+
+		P(P const&) = delete;
+		P& operator=(P const&) = delete;
+
+		P(int xx, int yy, int zz) : a(new A{xx}), y(yy), z(new int(zz)) {}
+		~P() { delete a; delete z; }
+
+		bool operator==(P const&) const = default;
+		template<class Ar> void serialize(Ar& ar, unsigned version) { ar | a | y | z; }
+	};
+
+	struct N {
+		A a;
+		template<class Ar> void serialize(Ar& ar, unsigned version) { ar | a; }
+	};
+
+}
 
 namespace detect_serialize
 {
@@ -41,8 +81,8 @@ struct X2 { template<class Ar> void serialize(Ar& ar) { } };
 struct X3 { }; template<class Ar> void serialize(Ar& ar, X3& x, unsigned version) { }
 struct X4 { template<class Ar> void serialize(Ar& ar, unsigned version) { } };
 
-//struct X5 { }; template<class Ar> X5* load_construct(Ar& ar, unsigned) { }
-struct X6 { template<class Ar> static X6* load_construct(Ar& ar, unsigned version) { } };
+struct X5 { }; template<class Ar> void load_construct(Ar& ar, X5*& o, unsigned) { }
+struct X6 { template<class Ar> static void load_construct(Ar& ar, X6*&, unsigned version) { } };
 struct X7 { }; template<class Ar> void save_construct(Ar& ar, X7& x, unsigned version) { }
 struct X8 { template<class Ar> void save_construct(Ar& ar, unsigned version) { } };
 
@@ -62,7 +102,7 @@ void test_type<T,CHECKS,Sn,LCn,SCn>::check()
 	CHECK(access::detect<Ar>::has_serialize_mem<T>::value == ((CHECKS & SM) != 0));
 	CHECK(access::detect<Ar>::has_serialize_version<T>::value == ((CHECKS & SV) != 0));
 	CHECK(access::detect<Ar>::has_serialize_mem_version<T>::value == ((CHECKS & SMV) != 0));
-	//CHECK(access::detect<Ar>::has_load_construct<T>::value == ((CHECKS & LC) != 0));
+	CHECK(access::detect<Ar>::has_load_construct<T>::value == ((CHECKS & LC) != 0));
 	CHECK(access::detect<Ar>::has_load_construct_mem<T>::value == ((CHECKS & LCM) != 0));
 	CHECK(access::detect<Ar>::has_save_construct<T>::value == ((CHECKS & SC) != 0));
 	CHECK(access::detect<Ar>::has_save_construct_mem<T>::value == ((CHECKS & SCM) != 0));
@@ -89,13 +129,9 @@ TEST_CASE("detect")
 	test_type<X8, SCM, 0, 0, 1>::check();
 }
 
-TEST_CASE("serialize")
+TEST_CASE("value serialize")
 {
 	using namespace pulmotor;
-
-	std::stringstream ss;
-	pulmotor::sink_ostream so(ss);
-	pulmotor::sink_archive ar(so);
 
 	SUBCASE("arithmetic")
 	{
@@ -129,19 +165,164 @@ TEST_CASE("serialize")
 		basic_tester<s64>()(-0x8000'0000'0000'0000);
 	}
 
+	using namespace test_types;
+	archive_vector_out ar;
 	SUBCASE("struct")
 	{
 		A a{1234};
-
-		archive_vector_out ar;
-	//	ar | a;
+		ar | a;
 
 		archive_vector_in i(ar.data);
 		A x;
-	//	i | x;
+		i | x;
 
-		//CHECK( a == x);
+		CHECK( a == x );
+	}
 
+	SUBCASE("primitive array")
+	{
+		int a[2] = {1, 120};
+		ar | a;
+
+		archive_vector_in i(ar.data);
+		int x[2];
+		i | x;
+		CHECK( a[0] == x[0] );
+		CHECK( a[1] == x[1] );
+	}
+
+	SUBCASE("array")
+	{
+		A a[2] = {1234, 5678};
+		ar | a;
+
+		archive_vector_in i(ar.data);
+		A x[2];
+		i | x;
+		CHECK( a[0] == x[0] );
+		CHECK( a[1] == x[1] );
+	}
+	
+	SUBCASE("nested struct")
+	{
+		N n { {1233} };
+		ar | n;
+
+		B b{1111, 2222};
+		ar | b;
+
+
+		archive_vector_in i(ar.data);
+		N n1;
+		i | n1;
+		CHECK( n1.a.x == n.a.x );
+
+		B x;
+		i | x;
+		CHECK( b.a == x.a );
+		CHECK( b.y == x.y );
+
+	}
+}
+
+namespace ptr_types
+{
+	struct A {
+		int x;
+		explicit A(int xx) : x(xx) {}
+
+		template<class Ar> void save_construct(Ar& ar, unsigned version) {
+			ar | x;
+		}
+		template<class Ar> static void load_construct(Ar& ar, A* x, unsigned version) {
+			int xx;
+			ar | xx;
+			new (x) A (xx);
+		}
+	};
+	
+	struct P {
+		std::aligned_storage<sizeof(A)>::type a[1];
+
+		explicit P(int aa) { new (a) A (aa); }
+		~P() { ((A*)a)->~A(); }
+
+		template<class Ar> void serialize(Ar& ar, unsigned version) {
+			if constexpr(Ar::is_reading)
+				((A*)a)->~A();
+			ar | place<A>(a);
+		}
+		A& getA() { return *(A*)a; }
+	};
+
+	/*struct Za {
+		X* px;
+		std::allocator<X> xa;
+
+ 		using at = std::allocator_traits<decltype(xa)>;
+
+		explicit Za(int xx) {
+			px = xa.allocate(1);
+			at::construct(xa, px, xx);
+		}
+		~Za() {
+			at::destroy(xa, px);
+		}
+
+		template<class Ar> void serialize(Ar& ar, unsigned version) {
+			ar | alloc(px, [this]() { return at::allocate(xa, 1); } );
+			//ar | px * alloc([](&this) { return at::allocate(xa, 1); } );
+		}
+	};*/
+}
+
+TEST_CASE("ptr serialize")
+{
+	using namespace ptr_types;
+	archive_vector_out ar;
+
+	SUBCASE("load construct")
+	{
+		A* a = new A(100);
+		ar | a;
+
+		A* pa = nullptr;
+		archive_vector_in i(ar.data);
+		i | pa;
+
+		CHECK(a->x == pa->x);
+		delete pa;
+
+		delete a;
+	}
+
+	SUBCASE("placement new")
+	{
+		std::aligned_storage<sizeof(A)> a[1];
+		new (a) A(123456);
+		ar | place<A>(a);
+
+		P p1(100);
+		ar | p1;
+
+		std::aligned_storage<sizeof(A)> aa[1];
+		archive_vector_in i(ar.data);
+		i | place<A>(aa);
+
+		A& a1 = *reinterpret_cast<A*>(a);
+		A& a2 = *reinterpret_cast<A*>(aa);
+
+		CHECK(a1.x == a2.x);
+
+
+		P p2(200);
+		i | p2;
+		CHECK(p1.getA().x == p2.getA().x);
+
+	}
+
+	SUBCASE("with allocator")
+	{
 	}
 
 	/*SUBCASE("primitive compile speed test")
