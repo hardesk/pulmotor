@@ -4,6 +4,38 @@
 
 using namespace pulmotor;
 
+std::vector<char> operator"" _v(char const* s, size_t l) { return std::vector<char>(s, s + l); }
+
+namespace std {
+
+template<class T, class A>
+doctest::String toString(std::vector<T, A> const& v) {
+	std::string s;
+	s.reserve(v.size() * sizeof(T)*7/2 + 5);
+	for(size_t i=0; i<v.size(); ++i) {
+		if (v.size() > 32 && (i>=24 && i<v.size()-4)) {
+			if (i == 24)
+				s += ", ...";
+		} else {
+			if constexpr(std::is_same<T, char>::value) {
+				s += '\'';
+				if (v[i] < 32) s += '\\' + std::to_string((int)v[i]); else s += v[i];
+				s += '\'';
+			} else if constexpr(std::is_pointer<T>::value && std::is_arithmetic<typename std::remove_pointer<T>::type>::value) {
+				s += '&';
+				s += std::to_string(*v[i]);
+			} else if constexpr(std::is_arithmetic<T>::value) {
+				s += std::to_string(v[i]);
+			} else
+				s += '?';
+			if (i != v.size() - 1)
+				s += ", ";
+		}
+	}
+	return s.c_str();
+}
+}
+
 template<class T>
 struct basic_tester {
 	void operator()(T value) {
@@ -71,7 +103,7 @@ namespace test_types
 		template<class Ar> void serialize(Ar& ar, unsigned version) { ar | a; }
 	};
 
-}
+} // test_types
 
 namespace detect_serialize
 {
@@ -81,16 +113,29 @@ struct X2 { template<class Ar> void serialize(Ar& ar) { } };
 struct X3 { }; template<class Ar> void serialize(Ar& ar, X3& x, unsigned version) { }
 struct X4 { template<class Ar> void serialize(Ar& ar, unsigned version) { } };
 
-struct X5 { }; template<class Ar> void load_construct(Ar& ar, X5*& o, unsigned) { }
-struct X6 { template<class Ar> static void load_construct(Ar& ar, X6*&, unsigned version) { } };
+struct X5P { }; template<class Ar> void load_construct(Ar& ar, X5P*& o, unsigned) { }
+struct X6P { template<class Ar> static void load_construct(Ar& ar, X6P*&, unsigned version) { } };
+struct X5 { }; template<class Ar, class F> void load_construct(Ar& ar, pulmotor::ctor<X5, F> const& o, unsigned) { }
+struct X6 { template<class Ar, class F> static void load_construct(Ar& ar, pulmotor::ctor<X6, F> const& o, unsigned version) { } };
+
 struct X7 { }; template<class Ar> void save_construct(Ar& ar, X7& x, unsigned version) { }
 struct X8 { template<class Ar> void save_construct(Ar& ar, unsigned version) { } };
 
-enum { S = 1, SM = 2, SV = 4, SMV = 8, LC = 16, LCM = 32, SC = 64, SCM = 128 };
+enum { S = 1, SM = 2, SV = 4, SMV = 8, LC = 16, LCM = 32, SC = 64, SCM = 128, LCP = 256, LCMP = 512 };
 template<class T, unsigned CHECKS, unsigned Sn, unsigned LCn, unsigned SCn>
 struct test_type
 {
 	static void check();
+};
+
+struct FF {
+	template<class U, class... Args> void operator()(Args const&... args) {}
+};
+
+template<class A, class T, class F>
+struct bybys
+{
+	using BB = decltype( load_construct(std::declval<A&>(), std::declval<ctor<T,F>&>(), 0U) );
 };
 
 template<class T, unsigned CHECKS, unsigned Sn, unsigned LCn, unsigned SCn>
@@ -98,6 +143,8 @@ void test_type<T,CHECKS,Sn,LCn,SCn>::check()
 {
 	using Ar = pulmotor::pulmotor_archive;
 
+	auto f = [](auto&&...) {};
+	using F = decltype(f);
 	CHECK(access::detect<Ar>::has_serialize<T>::value == ((CHECKS & S) != 0));
 	CHECK(access::detect<Ar>::has_serialize_mem<T>::value == ((CHECKS & SM) != 0));
 	CHECK(access::detect<Ar>::has_serialize_version<T>::value == ((CHECKS & SV) != 0));
@@ -107,11 +154,12 @@ void test_type<T,CHECKS,Sn,LCn,SCn>::check()
 	CHECK(access::detect<Ar>::has_save_construct<T>::value == ((CHECKS & SC) != 0));
 	CHECK(access::detect<Ar>::has_save_construct_mem<T>::value == ((CHECKS & SCM) != 0));
 
-	CHECK(access::detect<Ar>::count_serialize<T>::value == Sn);
+	//CHECK(access::detect<Ar>::count_serialize<T>::value == Sn);
 	CHECK(access::detect<Ar>::count_load_construct<T>::value == LCn);
 	CHECK(access::detect<Ar>::count_save_construct<T>::value == SCn);
 }
-}
+
+} // detect_serialize
 
 TEST_CASE("detect")
 {
@@ -123,7 +171,8 @@ TEST_CASE("detect")
 	test_type<X3, SV , 1, 0, 0>::check();
 	test_type<X4, SMV, 1, 0, 0>::check();
 	
-//	test_type<X5, LC , 0, 1, 0>::check();
+	test_type<X5, LC , 0, 1, 0>::check();
+	//test_type<X6P,LCMP,0, 1, 0>::check();
 	test_type<X6, LCM, 0, 1, 0>::check();
 	test_type<X7, SC , 0, 0, 1>::check();
 	test_type<X8, SCM, 0, 0, 1>::check();
@@ -165,6 +214,78 @@ TEST_CASE("value serialize")
 		basic_tester<s64>()(-0x8000'0000'0000'0000);
 	}
 
+	SUBCASE("alignment")
+	{
+		using namespace std::string_literals;
+
+		u8 a8{0x38};
+		u16 a16{0x3631};
+		u32 a32{0x32333233};
+		u64 a64{0x3436343634363436};
+
+		u8 x8;
+		u16 x16;
+		u32 x32;
+		u64 x64;
+
+		pulmotor::archive_vector_out ar;
+
+		SUBCASE("8") {
+			ar | a8 | a16 | a32 | a64;
+			printf("ss: %s\n", ar.str().data());
+			CHECK(ar.data == "8\0" "16323264646464"_v);
+			
+			archive_vector_in i(ar.data);
+			i | x8 | x16 | x32 | x64;
+			CHECK(a8==x8);
+			CHECK(a16==x16);
+			CHECK(a32==x32);
+			CHECK(a64==x64);
+		}
+
+		SUBCASE("16") {
+			ar | a16 | a32 | a64;
+			CHECK(ar.data == "16\0\0" "323264646464"_v);
+			archive_vector_in i(ar.data);
+			i | x16 | x32 | x64;
+			CHECK(a16==x16);
+			CHECK(a32==x32);
+			CHECK(a64==x64);
+		}
+
+		SUBCASE("32") {
+			ar | a32 | a64;
+			CHECK(ar.data == "3232\0\0\0\0""64646464"_v);
+			archive_vector_in i(ar.data);
+			i | x32 | x64;
+			CHECK(a32==x32);
+			CHECK(a64==x64);
+		}
+
+		SUBCASE("16\08") {
+			ar | a16 | a8 | a32 | a64;
+			CHECK(ar.data == "168\0""323264646464"_v);
+			archive_vector_in i(ar.data);
+			i | x16 | x8 | x32 | x64;
+			CHECK(a16==x16);
+			CHECK(a8==x8);
+			CHECK(a32==x32);
+			CHECK(a64==x64);
+		}
+
+		SUBCASE("16\032\08") {
+			ar | a16 | a32 | a8 | a64;
+			CHECK(ar.data == "16\0\0""32328\0\0\0\0\0\0\0""64646464"_v);
+			archive_vector_in i(ar.data);
+			i | x16 | x32 | x8 | x64;
+			CHECK(a16==x16);
+			CHECK(a32==x32);
+			CHECK(a8==x8);
+			CHECK(a64==x64);
+		}
+
+	}
+
 	using namespace test_types;
 	archive_vector_out ar;
 	SUBCASE("struct")
@@ -203,6 +324,22 @@ TEST_CASE("value serialize")
 		CHECK( a[1] == x[1] );
 	}
 	
+	SUBCASE("array of array")
+	{
+		A a[2][3] = { {1234, 5678, 9112}, {1234, 5678, 9556} };
+		ar | a;
+
+		archive_vector_in i(ar.data);
+		A x[2][3];
+		i | x;
+		CHECK( a[0][0] == x[0][0] );
+		CHECK( a[0][1] == x[0][1] );
+		CHECK( a[0][2] == x[0][2] );
+		CHECK( a[1][0] == x[1][0] );
+		CHECK( a[1][1] == x[1][1] );
+		CHECK( a[1][2] == x[1][2] );
+	}
+	
 	SUBCASE("nested struct")
 	{
 		N n { {1233} };
@@ -225,6 +362,40 @@ TEST_CASE("value serialize")
 	}
 }
 
+namespace enum_types
+{
+	enum A { A0 = 0, A1 = 200 };
+	enum S : short { S0 = -1, S1 = 40 };
+	enum class C { C0 = 2 };
+	enum class X : uint8_t { X0 = 102 };
+}
+
+TEST_CASE("enum serialize")
+{
+	using namespace enum_types;
+	archive_vector_out ar;
+
+	A a{A1};
+	S s{S0};
+	C c{C::C0};
+	X x{X::X0};
+
+	ar | a | s | c | x;
+	archive_vector_in i(ar.data);
+
+	A a1;
+	S s1;
+	C c1;
+	X x1;
+	i | a1 | s1 | c1 | x1;
+
+	CHECK(a1 == a);
+	CHECK(s1 == s);
+	CHECK(c1 == c);
+	CHECK(x1 == x);
+}
+
+
 namespace ptr_types
 {
 	struct A {
@@ -234,10 +405,11 @@ namespace ptr_types
 		template<class Ar> void save_construct(Ar& ar, unsigned version) {
 			ar | x;
 		}
-		template<class Ar> static void load_construct(Ar& ar, A* x, unsigned version) {
+		template<class Ar, class F> static void load_construct(Ar& ar, pulmotor::ctor<A, F> const& x, unsigned version) {
 			int xx;
 			ar | xx;
-			new (x) A (xx);
+			x(xx);
+			//new (x) A (xx);
 		}
 	};
 	
@@ -255,25 +427,40 @@ namespace ptr_types
 		A& getA() { return *(A*)a; }
 	};
 
-	/*struct Za {
-		X* px;
-		std::allocator<X> xa;
+	struct Za {
+		A* px{nullptr};
+		std::allocator<A> xa;
 
  		using at = std::allocator_traits<decltype(xa)>;
 
-		explicit Za(int xx) {
+		explicit Za(int aa) {
 			px = xa.allocate(1);
-			at::construct(xa, px, xx);
+			at::construct(xa, px, aa);
 		}
 		~Za() {
 			at::destroy(xa, px);
 		}
 
 		template<class Ar> void serialize(Ar& ar, unsigned version) {
+			if constexpr(Ar::is_reading) at::destroy(xa, px);
 			ar | alloc(px, [this]() { return at::allocate(xa, 1); } );
-			//ar | px * alloc([](&this) { return at::allocate(xa, 1); } );
 		}
-	};*/
+	};
+
+	struct Zb {
+		A* px{nullptr};
+		std::allocator<A> xa;
+
+ 		using at = std::allocator_traits<decltype(xa)>;
+
+		Zb() { }
+		Zb(int aa) { px = xa.allocate(1); at::construct(xa, px, aa); }
+		~Zb() { at::destroy(xa, px); }
+
+		template<class Ar> void serialize(Ar& ar, unsigned version) {
+			ar | alloc(px, [this]() { return at::allocate(xa, 1); }, [this](A* p) { at::destroy(xa, p); } );
+		}
+	};
 }
 
 TEST_CASE("ptr serialize")
@@ -294,6 +481,45 @@ TEST_CASE("ptr serialize")
 		delete pa;
 
 		delete a;
+	}
+
+	SUBCASE("user alloc")
+	{
+		std::set<void*> ps;
+		auto ma = [&ps] () { void* p = malloc(sizeof(A)); ps.insert(p); return p; };
+		auto da = [&ps] (void* p) { CHECK(ps.count(p) == 1); ps.erase(p); free(p); };
+		auto s = [&] (auto& ar, A*& a) { ar | alloc(a, ma); };
+
+		A* a = new (ma()) A(5555);
+		s(ar, a);
+
+		archive_vector_in i(ar.data);
+		A* aa = nullptr;
+		s(i, aa);
+
+		CHECK(a->x == aa->x);
+
+		da(a);
+		da(aa);
+	}
+
+	SUBCASE("placement")
+	{
+		int x = 200, xx = 0;
+		std::aligned_storage<sizeof(A)> a[1];
+		new (a) A(12345678);
+		ar | place<A>(a) | x;
+
+		std::aligned_storage<sizeof(A)> aa[1];
+		archive_vector_in i(ar.data);
+		i | place<A>(aa) | xx;
+
+		CHECK(x == xx);
+
+		A& a1 = *reinterpret_cast<A*>(a);
+		A& a2 = *reinterpret_cast<A*>(aa);
+
+		CHECK(a1.x == a2.x);
 	}
 
 	SUBCASE("placement new")
@@ -323,8 +549,79 @@ TEST_CASE("ptr serialize")
 
 	SUBCASE("with allocator")
 	{
+		Za za(10);
+		ar | za;
+
+		archive_vector_in i(ar.data);
+		Za zb(0);
+		i | zb;
+
+		CHECK(za.px->x == zb.px->x);
 	}
 
+	SUBCASE("with allocator and destroy and null")
+	{
+		Zb zb0, zb1(200);
+		ar | zb0 | zb1;
+
+		archive_vector_in i(ar.data);
+		Zb zx0, zx1(400);
+		i | zx0 | zx1;
+
+		CHECK(zb0.px == nullptr);
+		CHECK(zx0.px == nullptr);
+		CHECK(zx1.px->x == zb1.px->x);
+		CHECK(zx1.px != zb1.px);
+
+		archive_vector_in i1(ar.data);
+		Zb zy0(300), zy1;
+		i1 | zy0 | zy1;
+
+		CHECK(zy0.px == nullptr);
+		CHECK(zy1.px != nullptr);
+		CHECK(zy1.px->x == zb1.px->x);
+	}
+
+	SUBCASE("emplace")
+	{
+		A* a = new A(10);
+		ar | a;
+
+		archive_vector_in i(ar.data);
+		A* aa{nullptr};
+		i | construct<A>(aa, [](int a) { return new A(a); }, [](A* p) { delete p; } );
+
+		REQUIRE(aa != nullptr);
+		CHECK(aa->x == a->x);
+
+		bool did_delete = false;
+		bool did_alloc = false;
+		archive_vector_in i2(ar.data);
+		i2 | construct<A>(aa, [&](int a) { did_alloc = true; return new A(a); }, [&](A* p) { did_delete = true; delete p; } );
+
+		CHECK(did_alloc == true);
+		CHECK(did_delete == true);
+		CHECK(aa->x == a->x);
+
+		delete a;
+		delete aa;
+	}
+
+	SUBCASE("emplace_back")
+	{
+		A a{20};
+		ar | a;
+
+		archive_vector_in i(ar.data);
+		std::vector<A> va;
+		i | construct<A>([&va](int a) { va.emplace_back(a); } );
+
+		REQUIRE(va.size() == 1);
+		CHECK(va.back().x == a.x);
+	}
+
+
+#if 0
 	/*SUBCASE("primitive compile speed test")
 	{
 		using namespace pulmotor;
@@ -342,4 +639,137 @@ TEST_CASE("ptr serialize")
 
 		S4(xx);
 	}*/
+#endif
 }
+
+#if 0
+/*
+namespace pulmotor
+{
+
+struct XX {
+	XX(int aa, int bb) : a(aa), b(bb) {}
+	int a, b;
+	bool operator==(XX const&) const = default;
+};
+
+doctest::String toString(XX const& xx) {
+	std::string s;
+	s += '{' + std::to_string(xx.a) + ',' + std::to_string(xx.b) + '}';
+	return s.c_str();
+}
+
+template<class A>
+void save_construct(A& ar, XX const& x, unsigned version)
+{
+	ar | x.a | x.b;
+}
+
+template<class A, class F>
+void load_construct(A& ar, pulmotor::ctor<XX, F> const& cc, unsigned version)
+{
+	int aa, bb;
+	ar | aa | bb;
+	cc(aa, bb);
+}
+
+static_assert(pulmotor::access::detect<pulmotor::pulmotor_archive>::template has_load_construct<XX>::value == true, "detection is failing");
+static_assert(pulmotor::access::detect<pulmotor::pulmotor_archive>::template has_save_construct<XX>::value == true, "detection is failing");
+
+template<class A, class T, class Al>
+void serialize(A& ar, std::vector<T, Al>& v)
+{
+	if constexpr(A::is_reading)
+	{
+		v.clear();
+		u32 sz = 0;
+		ar.read_basic_aligned(sz);
+
+		if constexpr(pulmotor::access::wants_construct<T, A>::value)
+		{
+			v.clear();
+			v.reserve(sz);
+			for (size_t i=0; i<sz; ++i)
+				ar | pulmotor::construct<T>( [&v](auto&&... args) { v.emplace_back(args...); });
+				//ar | pulmotor::construct<XX>( [&v](int a, int b) { v.emplace_back(a, b); });
+		}
+		else
+		{
+			v.resize(sz);
+			for (size_t i=0; i<sz; ++i)
+				ar | v[i];
+		}
+	}
+	else
+	{
+		u32 sz = v.size();
+		ar.align_stream(sizeof sz);
+		ar.write_basic((u32)sz);
+		for (size_t i=0; i<sz; ++i)
+				ar | v[i];
+	}
+}
+
+TEST_CASE("std serialize")
+{
+	using namespace ptr_types;
+	archive_vector_out ar;
+
+	SUBCASE("vector (int)")
+	{
+		std::vector<int> v{10,20,30,40,50}, vx;
+		ar | v;
+
+		archive_vector_in i(ar.data);
+		i | vx;
+
+		CHECK(v == vx);
+	}
+
+	SUBCASE("vector (int*)")
+	{
+		std::vector<int*> v{new int(10), new int(20)}, vx;
+		ar | v;
+
+		archive_vector_in i(ar.data);
+		i | vx;
+
+		CHECK(v != vx);
+		CHECK(*v[0] == *vx[0]);
+		CHECK(*v[1] == *vx[1]);
+		for(auto x : v) delete x;
+		for(auto x : vx) delete x;
+	}
+
+	/*
+	SUBCASE("vector (XX)")
+	{
+		std::vector<XX> v{XX(10, 20), XX(101, 1020)}, vx;
+		ar | v;
+
+		archive_vector_in i(ar.data);
+		i | vx;
+
+		CHECK(v != vx);
+		CHECK(v[0] == vx[0]);
+		CHECK(v[1] == vx[1]);
+	}
+
+	SUBCASE("vector (XX*)")
+	{
+		std::vector<XX*> v{new XX(10, 20), new XX(101, 1020)}, vx;
+		ar | v;
+
+		archive_vector_in i(ar.data);
+		i | vx;
+
+		CHECK(v != vx);
+		CHECK(*v[0] == *vx[0]);
+		CHECK(*v[1] == *vx[1]);
+
+		for(auto x : v) delete x;
+		for(auto x : vx) delete x;
+	}*/
+}
+}
+#endif

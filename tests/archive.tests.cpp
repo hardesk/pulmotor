@@ -74,14 +74,14 @@ TEST_CASE("pulmotor archive")
 		SUBCASE("basic")
 		{
 			pulmotor::archive_vector_out ar;
-			ar.write_object_prefix(a, 1337);
+			ar.write_object_prefix(&a, 1337);
 			CHECK(ar_check<u32>::one(ar.data) == 1337);
 		}
 
 		SUBCASE("typename")
 		{
 			pulmotor::archive_vector_out ar(ver_flag_debug_string);
-			ar.write_object_prefix(a, 1337);
+			ar.write_object_prefix(&a, 1337);
 
 			size_t offset = 0;
 			CHECK((ar_check<u32>::pull(ar.data, offset) & ver_flag_mask) == 1337);
@@ -92,7 +92,7 @@ TEST_CASE("pulmotor archive")
 		SUBCASE("forced align")
 		{
 			pulmotor::archive_vector_out ar(ver_flag_align_object);
-			ar.write_object_prefix(a, 1337);
+			ar.write_object_prefix(&a, 1337);
 			CHECK(ar.offset() == al);
 
 			size_t offset = 0;
@@ -104,7 +104,7 @@ TEST_CASE("pulmotor archive")
 		SUBCASE("forced string+align")
 		{
 			pulmotor::archive_vector_out ar(ver_flag_debug_string|ver_flag_align_object);
-			ar.write_object_prefix(a, 1337);
+			ar.write_object_prefix(&a, 1337);
 			CHECK(ar.offset() == al);
 
 			size_t offset = 0;

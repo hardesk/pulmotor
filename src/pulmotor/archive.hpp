@@ -123,9 +123,18 @@ struct archive_write_version_util
 	Derived& self() { return *static_cast<Derived*>(this); }
 
 	template<class T>
-	void write_object_prefix(T const& obj, unsigned version) {
+	void write_basic_aligned(T& o, unsigned align = 0) {
+		self().align_stream(align == 0 ? sizeof o : align);
+		self().write_data(&o, sizeof o);
+	}
+
+	template<class T>
+	void write_object_prefix(T const* obj, unsigned version) {
 		assert(version != no_version);
 		u32 vf = version;
+
+		if (obj == nullptr)
+			vf |= ver_flag_null_ptr;
 
 		fs_t block_size = 0;
 		if ((m_flags & ver_flag_align_object)) {// || (m_flags & ver_flag_debug_string)) {
@@ -192,11 +201,29 @@ private:
 	unsigned m_flags;
 };
 
+struct object_version
+{
+	unsigned v;
+
+	object_version& operator=(object_version const&) = default;
+
+	unsigned version() const { return v & ver_flag_mask; }
+	unsigned is_nullptr() const { return v & ver_flag_null_ptr; }
+	
+	operator unsigned() const { return v & ver_flag_mask; }
+};
+
 template<class Derived>
 struct archive_read_util
 {
 	enum { is_stream_aligned = true };
 	Derived& self() { return *static_cast<Derived*>(this); }
+
+	template<class T>
+	void read_basic_aligned(T& o, unsigned align = 0) {
+		align_stream(align == 0 ? sizeof o : align);
+		self().read_basic(o);
+	}
 
 	void align_stream(size_t al) {
 		fs_t offset = self().offset();
@@ -204,7 +231,7 @@ struct archive_read_util
 			self().advance(align(offset, al) - offset);
 	}
 
-	unsigned process_prefix() {
+	object_version process_prefix() {
 
 		u32 version=0, garbage=0, debug_string_len=0;
 		self().read_basic(version);
@@ -219,7 +246,7 @@ struct archive_read_util
 			}
 		}
 
-		return version & ver_flag_mask;
+		return object_version{version};
 	}
 };
 
@@ -700,7 +727,7 @@ struct archive_vector_in
 
 	enum { is_reading = true, is_writing = false };
 
-	size_t offset() const { return data.size(); }
+	size_t offset() const { return m_offset; }
 
 	template<class T>
 	void read_basic(T& a) {
