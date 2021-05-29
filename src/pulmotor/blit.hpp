@@ -3,7 +3,6 @@
 
 #include "pulmotor_config.hpp"
 #include "pulmotor_types.hpp"
-#include "pulmotor_fwd.hpp"
 
 #include <type_traits>
 //#include <boost/type_traits/extent.hpp>
@@ -44,6 +43,52 @@
 
 namespace pulmotor {
 
+
+template<class T>
+inline void blit_to_container (T& a, std::vector<unsigned char>& odata, target_traits const& tt);
+
+void set_offsets (void* data, std::pair<uintptr_t,uintptr_t> const* fixups, size_t fixup_count, size_t ptrsize, bool change_endianess);
+void fixup_pointers (void* data, uintptr_t const* fixups, size_t fixup_count);
+
+template<class T> struct ptr_address;
+template<class T> inline ptr_address<typename std::remove_cv<T>::type> ptr (T*& p, size_t cnt = 1);
+//template<class T> inline ptr_address<T> ptr (T const* const& p, size_t cnt);
+template<class ArchiveT, class ObjectT> inline ArchiveT& blit (ArchiveT& ar, ObjectT& obj);
+
+template<class ArchiveT, class T>
+inline typename pulmotor::enable_if<std::is_base_of<archive, ArchiveT>::value, ArchiveT>::type&
+operator& (ArchiveT& ar, T const& obj);
+
+template<class ArchiveT, class T>
+inline typename pulmotor::enable_if<std::is_base_of<archive, ArchiveT>::value, ArchiveT>::type&
+operator| (ArchiveT& ar, T const& obj);
+
+
+template<class ObjectT>
+inline blit_section& operator | (blit_section& ar, ObjectT const& obj);
+template<class ObjectT>
+inline blit_section& operator & (blit_section& ar, ObjectT const& obj);
+
+
+namespace util
+{
+	void* fixup_pointers_impl (pulmotor::blit_section_info* bsi);
+
+	template<class T>
+	inline T* fixup_pointers (pulmotor::blit_section_info* bsi);
+
+	template<class T>
+	T* fixup_pointers (void* dataWithHeader);
+
+	inline void fixup (pulmotor::blit_section_info* bsi);
+
+	//	inline size_t write_file (path_char const* name, u8 const* ptr, size_t size);
+
+	template<class T>
+	size_t write_file (path_char const* name, T& root, target_traits const& tt, size_t sectionalign = 16);
+}
+
+
 struct blit_section;
 
 	enum category {
@@ -55,23 +100,23 @@ struct blit_section;
 
 inline char const* to_string (category cat) {
 	switch (cat) {
-		case k_integral: return "integral"; 
+		case k_integral: return "integral";
 		case k_pointer: return "pointer";
 		case k_floating_point: return "floating point";
 		default:
 		case k_other: return "other";
 	}
 }
-		
-using namespace boost::multi_index;	
-	
+
+using namespace boost::multi_index;
+
 inline void change_endianess (blit_section_info& bsi)
 {
 	util::swap_variable (bsi.data_offset);
 	util::swap_variable (bsi.fixup_offset);
 	util::swap_variable (bsi.fixup_count);
 }
-	
+
 
 inline std::string shorten_name (char const* str)
 {
@@ -84,7 +129,7 @@ inline std::string shorten_name (char const* str)
 	{
 		if (str[i] == '<')
 			open++;
-		
+
 		if (!open)
 			res += str[i];
 
@@ -141,13 +186,13 @@ enum {
 template<int Flag>
 inline bool is_flag (unsigned flags) {
 	return (flags & Flag) != 0;
-}	
+}
 
 template<int Flag>
 inline unsigned set_flag (unsigned flags) {
 	return flags | Flag;
-}	
-	
+}
+
 inline bool is_member (unsigned flags) {
 	return (flags & 0x80000000) != 0;
 }
@@ -169,7 +214,7 @@ struct array_address_tag {};
 template<class T>
 struct ref_wrapper {
 	T* p;
-	explicit ref_wrapper (T* t) : p(t) {} 
+	explicit ref_wrapper (T* t) : p(t) {}
 };
 
 template<class T>
@@ -208,9 +253,9 @@ inline nvp_t operator/ (name_holder n, T const& value)
 struct exchange_t
 {
 	exchange_t (Target const& t, Original const& o)
-	:	target (t), original (o) 
+	:	target (t), original (o)
 	{}
-	
+
 	Target		value;
 	Original	original;
 };*/
@@ -298,7 +343,7 @@ struct blit_section
 		member_info (class_info const* ci, size_t offset, size_t count)
 			:	ci_ (ci), offset_(offset), count_ (count)
 	   	{}
-	   	
+
 	   	bool operator== (member_info const& a) const {
 	   		return a.ci_ == ci_ && a.offset_ == offset_ && a.count_ == count_;
 	   	}
@@ -321,7 +366,7 @@ struct blit_section
 		bool operator==(ref const& a) const { return offset_ == a.offset_; }
 		size_t		offset_;
 	};
-	
+
 	class class_info
 	{
 		typedef std::vector<member_info> member_container;
@@ -335,7 +380,7 @@ struct blit_section
 		member_container		members_;
 		category				category_;
 		bool					complete_;
-		
+
 #if PULMOTOR_DEBUG_GATHER || PULMOTOR_DEBUG_WRITE
 		char const*	class_name_;
 #endif
@@ -352,10 +397,10 @@ struct blit_section
 		category get_category () const { return category_; }
 		size_t member_count () const { return members_.size (); }
 		bool no_members () const { return members_.empty (); }
-		
+
 		bool is_pointer () const { return category_ == k_pointer; }
 
-		char const* get_name () const	
+		char const* get_name () const
 		{	return ti_->name (); }
 
 		bool is_complete () const {	return complete_; }
@@ -371,14 +416,14 @@ struct blit_section
 //				// check for overlap:
 //				for (member_container::iterator mit = members_.begin (), end = members_.end (); mit != end; ++mit) {
 //					member_info const& mmi = *mit;
-//					
+//
 //					size_t mmie = mmi.offset_ + mmi.size_;
 //					size_t mie = mi.offset_ + mi.size_;
-//					
+//
 //					if ((mi.offset_ >= mmi->offset_ && mi.offset_ < mmie) ||
 //						(mi.offset
 //				}
-				
+
 				gather_logf_ident (1, " + add member: cat: %s, offset: %lu, size: %lu, count: %lu, type:'%s'\n", to_string(cat), offset, size, count, ci ? ci->get_name () : "<null>");
 				members_.push_back (mi);
 			}
@@ -398,7 +443,7 @@ struct blit_section
 
 		member_iterator member_begin () const { return members_.begin (); }
 		member_iterator member_end () const { return members_.end (); }
-		
+
 		size_t get_size () const
 		{	return size_; }
 
@@ -418,7 +463,7 @@ struct blit_section
 		object (class_info*	ci, uintptr_t data, size_t size, size_t count)
 			:	ci_(ci), data_(data), size_(size), count_ (count)
 		{}
-		
+
 		category get_category () const { return ci_->get_category (); }
 
 		uintptr_t data () const { return data_; }
@@ -450,7 +495,7 @@ struct blit_section
 		class_info* get_class_info () const { return ci_; }
 		char const* get_class_name () const { return ci_ ? ci_->get_name () : "<null>"; }
 	};
-	
+
 	struct objectptr_less_addr {
 		bool operator()(object const* a, object const* b) const {
 			return a->data () < b->data ();
@@ -484,7 +529,7 @@ struct blit_section
 		size_t		fullsize_;
 		bool		compounded_; // it's a compound value of another object
 		bool		array_;
-		
+
 #if PULMOTOR_DEBUG_GATHER || PULMOTOR_DEBUG_WRITE
 		char const*	class_name_;
 #endif
@@ -492,16 +537,16 @@ struct blit_section
 		bool is_array () const { return array_; }
 		bool belongs (uintptr_t ptr) const { return ptr >= object_ptr && ptr < object_ptr + fullsize_; }
 	};
-	
+
 	typedef std::vector<object*> object_container_t;
 	typedef std::vector<parent_info> pi_container_t;
 	// for holding offsets in the file for the objects registered
 	typedef std::map<object*, size_t> file_offsets_t;
 	// for tracking references. holds offsets in the files marking places where all the pointers/references are
 	typedef std::vector<std::pair<uintptr_t, uintptr_t> > ptr_refs_t;
-		
+
 //	typedef std::map<void*, object*> object_map_t;
-	
+
 	struct ptr_tag {};
 	typedef multi_index_container<
 		object*,
@@ -509,24 +554,24 @@ struct blit_section
 			ordered_non_unique<tag<ptr_tag>, identity<object*>, objectptr_less_addr>
 		>
 	> object_mindex_t;
-	
+
 	typedef object_mindex_t::index<ptr_tag>::type	object_ptr_t;
-	
+
 	// objects registered by the recursive blit
 	object_mindex_t		objects_;
 	// root objects of the traversed hierarchy. roots are also present in objects_
 	object_container_t	roots_;
 	// when traversing, this holds parent object-types as a stack
 	pi_container_t		type_parents_;
-	
+
 	// all types encountered by the blit
 	typedef std::map<std::type_info const*, class_info*> class_info_container_t;
 	class_info_container_t class_infos_;
-	
+
 	// name of a blit-scope. used for debugging
 	std::vector<std::string> parent_names_;
 	std::string current_name_;
-	
+
 	// METHODS
 	blit_section ()
 	:	target_pointer_size_ (sizeof(uintptr_t))
@@ -541,7 +586,7 @@ struct blit_section
 		for (cont_t::iterator it = objects_.get<ptr_tag>().begin (), end = objects_.get<ptr_tag>().end (); it != end; ++it)
 			delete *it;
 	}
-	
+
 	template<class T>
 	class_info* get_class_info ()
 	{
@@ -564,7 +609,7 @@ struct blit_section
 		object_ptr_t::iterator it = objects_.get<ptr_tag> ().lower_bound ((uintptr_t)p, objectptr_less_addr());
 		if (it != objects_.get<ptr_tag> ().end ())
 			return (*it)->belongs ((uintptr_t)p);
-		
+
 		return false;
 	}
 
@@ -577,21 +622,21 @@ struct blit_section
 	{
 		parent_names_.push_back (current_name_);
 		current_name_ = "";
-		
+
 		if (!type_parents_.empty ())
 		{
 			// if instance parent is a composite, add this as a member
 			parent_info const& pi = type_parents_.back ();
-			
+
 			bool belongs = pi.belongs (ptr);
-			
+
 			if (!pi.ci_->is_complete () && belongs)
 			{
 				if (pi.array_)
 				{
 //					if (pi.compounded_)
 //					{
-//						uintptr_t offset = ptr - pi.object_ptr;						
+//						uintptr_t offset = ptr - pi.object_ptr;
 //						pi.ci_->add_member (area_ci, offset, object_size, count, cat);
 //					}
 				} else {
@@ -603,7 +648,7 @@ struct blit_section
 						// in case of allocated array, its class_info is the same as of contained class'
 						if (pi.ci_ != area_ci)
 						{
-							uintptr_t offset = ptr - pi.object_ptr;							
+							uintptr_t offset = ptr - pi.object_ptr;
 							pi.ci_->add_member (area_ci, offset, object_size, count, cat);
 						}
 					}
@@ -630,7 +675,7 @@ struct blit_section
 							 type_parents_[i].array_ ? "[]" : "");
 			gather_logf ("\n");
 		}
-		
+
 		gather_logf_ident (0, "> BEGIN object %p, %lu x %lu (%s)\n", ptr, object_size, count, to_string (cat));
 	}
 
@@ -638,14 +683,14 @@ struct blit_section
 	{
 		parent_names_.pop_back ();
 		type_parents_.pop_back ();
-		
+
 		// an array has member of one type (but may have many). stop type recording after one is finished
 		if (!type_parents_.empty () && type_parents_.back ().is_array ())
 			type_parents_.back ().ci_->set_complete(true);
 
 		if (ci && !ci->is_complete())
 			ci->set_complete (true);
-	
+
 		gather_logf_ident (0, "> END object %p\n", ptr);
 	}
 
@@ -653,9 +698,9 @@ struct blit_section
 	{
 		assert (!type_parents_.empty ());
 		assert (!type_parents_.back ().ci_->is_pointer ());
-		
+
 		parent_info const& pi = type_parents_.back ();
-		
+
 		if (!pi.ci_->is_complete ())
 		{
 			pi.ci_->add_member (area_ci, 0, object_size, count, cat);
@@ -734,19 +779,19 @@ struct blit_section
 		size_t					default_align;
 		size_t					waste;
 		target_traits const&	traits;
-		
+
 		write_state (buffer_t& obuf, ptr_refs_t& pr, file_offsets_t& fo, target_traits const& tt, size_t default_align_)
 		:	buffer (obuf), ptr_refs (pr), file_offsets (fo), default_align (default_align_), waste (0), traits (tt)
 		{
 		}
-		
+
 		bool change_endianess () const {
 			return
 				(pulmotor::is_le () && traits.big_endian) ||
 				(pulmotor::is_be () && !traits.big_endian);
 		}
 	};
-		
+
 	void write_out (std::vector<unsigned char>& output_buffer, target_traits const& targetTraits, size_t section_align = 4)
 	{
 //		std::sort (objects_.begin (), objects_.end (), objectptr_less_addr());
@@ -771,13 +816,13 @@ struct blit_section
 
 		std::vector<uintptr_t> fixups;
 		std::transform (pr.begin (), pr.end (), std::back_inserter(fixups), select_first ());
-	
+
 		std::sort (fixups.begin (), fixups.end ());
 
 		if (!pr.empty())
 			util::set_offsets (&*data_buffer.begin (), &*pr.begin (), pr.size (), targetTraits.ptr_size, ws.change_endianess ());
 
-		
+
 		for (size_t i=0; i<fixups.size (); ++i) {
 			write_logf ("fixup [%2d] at: 0x%08x\n", i, fixups[i]);
 		}
@@ -791,7 +836,7 @@ struct blit_section
 
 		// declare a new scope as we might change endianess and objects will be unusable
 		{
-			unsigned flags = targetTraits.big_endian ? pulmotor::basic_header::flag_be : 0; 
+			unsigned flags = targetTraits.big_endian ? pulmotor::basic_header::flag_be : 0;
 			pulmotor::basic_header hdr (0x0001, pulmotor::basic_header::flag_plain | flags);
 
 			blit_section_info bsi;
@@ -850,14 +895,14 @@ struct blit_section
 
 		if (ws.change_endianess ())
 			util::swap_endian<sizeof(uintptr_t)> (&output_buffer [f_fixup_offset + f_begin], fixups.size());
-			
+
 		write_logf ("total: %d bytes, waste: %d bytes\n", output_buffer.size () - initialBufferSize, waste);
 	}
 
 	object* find_object_at (uintptr_t ptr)
 	{
 		object_ptr_t::iterator it = objects_.get<ptr_tag>().lower_bound (ptr, objectptr_less_addr ());
-		
+
 		if (it == objects_.get<ptr_tag>().end ())
 			return 0;
 
@@ -876,8 +921,8 @@ struct blit_section
 	void process_pointer (object& o, size_t objectOffset, write_state& ws)
 	{
 	}
-	
-	
+
+
 	void process_members (class_info const* ci, size_t objectOffset, write_state& ws)
 	{
 		for (class_info::member_iterator it = ci->member_begin (), end = ci->member_end (); it != end; ++it)
@@ -932,7 +977,7 @@ struct blit_section
 						write_logf_ident (-1, 0);
 						break;
 					}
-						
+
 					default:
 						if (ws.change_endianess ())
 						{
@@ -945,19 +990,19 @@ struct blit_section
 			}
 		}
 	}
-							
+
 //	void process_array (object& o, size_t objectOffset, write_state& ws)
 //	{
 //		assert (o.get_category() == k_other);
-//		
+//
 //		for (int oi=0; oi<o.count (); ++oi)
 //		{
 //			// fetch pointer to this object data again, as buffer may be changed by child's write_out
 //			write_logf_ident (0, "  element-%02d: size %d, \n", oi, o.size());
-//			
+//
 //			// offset in the already written buffer where the pointer lies
 //			uintptr_t elementOffset = objectOffset + o.size () * i;
-//			
+//
 //			switch (o.get_category ())
 //			{
 //				case k_other:
@@ -967,29 +1012,29 @@ struct blit_section
 //						write_logf_ident (-1, 0);
 //						break;
 //					}
-//						
+//
 //				case k_pointer:
 //				{
 //					uintptr_t ptr = fetch_pointer (ws.buffer, memberOffset);
 //					write_logf_ident (0, "< POINTER: %p\n", ptr);
-//					
+//
 //					if (!ptr)
 //					{
 //						write_logf_ident (0, "< ZERO, not following\n");
 //						break;
 //					}
-//					
+//
 //					object* o = find_object_at (ptr);
 //					if (!o)
 //					{
 //						write_logf_ident (0, "! object at address %p is not registered\n", o);
 //						break;
 //					}
-//					
+//
 //					int offset_in_referencee = o->local_offset (ptr);
-//					
+//
 //					write_logf_ident (1, 0);
-//					
+//
 //					// WRITE IT!
 //					// offset of the object that 'this' reference is pointing to
 //					uintptr_t referencee_offset = write_out_object (o, ws);
@@ -997,7 +1042,7 @@ struct blit_section
 //					write_logf_ident (-1, 0);
 //					break;
 //				}
-//						
+//
 //					default:
 //						if (ws.change_endianess ())
 //						{
@@ -1013,7 +1058,7 @@ struct blit_section
 
 	static const size_t runtime_ptr_size = sizeof (uintptr_t) * 8;
 	size_t target_pointer_size_;
-	
+
 	void out_pointer (uintptr_t dataPtr, write_state& ws)
 	{
 		if (ws.traits.ptr_size == pointer_size)
@@ -1023,18 +1068,18 @@ struct blit_section
 		else
 		{
 			// TODO: pointer remap to other arch
-		}		
+		}
 	}
-	
+
 	void out_direct (uintptr_t dataPtr, size_t size, write_state& ws)
 	{
 		ws.buffer.insert (ws.buffer.end (), (char*)dataPtr, (char*)dataPtr + size);
 	}
-	
+
 //	void write_object (object* o, write_state& ws)
 //	{
 //		class_info* ci = o->get_class_info ();
-//		
+//
 //		for (int oi=0; oi<o->count (); ++oi)
 //		{
 //			switch (o->get_category())
@@ -1042,18 +1087,18 @@ struct blit_section
 //				case k_pointer:
 //					out_pointer (o->data(), ws);
 //					break;
-//					
+//
 //				case k_floating_point:
 //				case k_integral:
 //					out_direct (o->data (), o->size(), ws);
 //					break;
-//					
+//
 //					k_other
-//				
+//
 //			}
 //		}
-//		
-//		
+//
+//
 //		if (runtime_ptr_size != target_pointer_size)
 //		{
 //			//			class_info* ci = o->get_class_info ();
@@ -1108,20 +1153,20 @@ struct blit_section
 					// TODO: 64/32bit
 					uintptr_t ptr = fetch_pointer (ws.buffer, objectOffset);
 					write_logf_ident (0, "< POINTER: %p\n", ptr);
-					
+
 					if (!ptr)
 					{
 						write_logf_ident (0, "< ZERO, not following\n");
 						break;
 					}
-					
+
 					object* o = find_object_at (ptr);
 					if (!o)
 					{
 						write_logf_ident (0, "! object encompassing address %p is not registered\n", ptr);
 						break;
 					}
-					
+
 					write_logf_ident (1, 0);
 					uintptr_t written_offset = write_out_object (o, ws);
 					write_logf_ident (0, "< REF in file: *%p = %p -> %p\n", objectOffset, ptr, written_offset);
@@ -1130,7 +1175,7 @@ struct blit_section
 				}
 				break;
 			}
-				
+
 				// object is a compound, traverse members and follow pointers if such exist
 			case k_other:
 			{
@@ -1143,7 +1188,7 @@ struct blit_section
 				write_logf_ident (-1, 0);
 				break;
 			}
-				
+
 				// otherwise just fix endianess if needed
 			default:
 			{
@@ -1160,7 +1205,7 @@ struct blit_section
 			}
 		}
 	}
-	
+
 	uintptr_t write_out_object (object* o, write_state& ws)
 	{
 		file_offsets_t::iterator it = ws.file_offsets.find (o);
@@ -1175,7 +1220,7 @@ struct blit_section
 		// align the buffer first on class alignment. use default-alignment if the class info is null.
 		size_t object_align = o->alignment (ws.default_align);
 		size_t this_offset = align_on (unaligned_this_offset, object_align);
-		
+
 		// remember offset of the object in the buffer
 		ws.file_offsets.insert (std::make_pair (o, this_offset));
 
@@ -1183,7 +1228,7 @@ struct blit_section
 		ws.waste += align_buffer (ws.buffer, this_offset, 0);
 
 		assert (is_aligned (ws.buffer.size (), object_align));
-		
+
 		// insert the data of the object(s) into the buffer.
 		// we need to store the whole object as that can be an array
 		// and that has to be continuous.
@@ -1197,7 +1242,7 @@ struct blit_section
 		process_object (objectOffsetInOutput, o, ws);
 
 		write_logf_ident (-1, 0);
-		
+
 		return this_offset;
 	}
 };
@@ -1209,7 +1254,7 @@ struct factory_creation
 	:	id_ ((uintptr_t)ptr), data_ (data)
 	{}
 
-	uintptr_t	id_;	
+	uintptr_t	id_;
 	CreateDataT	data_;
 };*/
 
@@ -1243,13 +1288,13 @@ template<class ObjectT>
 inline void blit_impl (blit_section& ar, ObjectT& obj, unsigned version, primitive_tag)
 {
 	gather_logf_ident (0, "> primitive %s\n", shorten_name(typeid(obj).name()).c_str());
-	uintptr_t oa = (uintptr_t)pulmotor_addressof (obj); 
+	uintptr_t oa = (uintptr_t)pulmotor_addressof (obj);
 	typedef typename clean<ObjectT>::type clean_t;
 	blit_section::class_info* ci = ar.template get_class_info<clean_t>();
 	assert (type_category<clean_t>::value == k_integral || type_category<clean_t>::value == k_floating_point);
 	ar.begin_area (ci, oa, sizeof(obj), 1, type_category<clean_t>::value, false);
 	ar.end_area (ci, oa);
-	gather_logf_ident (0, 0); 
+	gather_logf_ident (0, 0);
 }
 
 // true, array of primitives
@@ -1291,7 +1336,7 @@ inline void blit_impl (blit_section& ar, ObjectT& obj, unsigned version, array_t
 		aa, array_size, shorten_name(typeid(obj).name()).c_str());
 
 	gather_logf_ident (0, "  >>>> member: %s\n", typeid(array_member_t).name ());
-	
+
 	blit_section::class_info* ci = ar.template get_class_info<typename clean<array_member_t>::type>();
 
 	gather_logf_ident (1, 0);
@@ -1307,7 +1352,7 @@ template<class ObjectT>
 inline void blit_impl (blit_section& ar, ptr_address<ObjectT> objaddr, unsigned version, ptr_address_tag)
 {
 	ObjectT** oa = reinterpret_cast<ObjectT**> (objaddr.addr);
-	
+
 	typedef typename clean<typename std::remove_all_extents<ObjectT>::type>::type pointee_t;
 	typedef typename clean<ObjectT>::type* pointer_t;
 
@@ -1321,7 +1366,7 @@ inline void blit_impl (blit_section& ar, ptr_address<ObjectT> objaddr, unsigned 
 	gather_logf_ident (1, 0);
 
 	ar.begin_area (ptr_ci, (uintptr_t)oa, sizeof (pointer_t), 1, k_pointer, false);
-	
+
 	bool already_registered = ar.has_registered (*oa);
 
 	if (already_registered)
@@ -1334,7 +1379,7 @@ inline void blit_impl (blit_section& ar, ptr_address<ObjectT> objaddr, unsigned 
 	{
 		blit_section::class_info* ci = ar.template get_class_info<pointee_t>();
 		category pointee_cat = type_category<pointee_t>::value ;
-		
+
 		gather_logf_ident (1, 0);
 		// if the count if more that one, we need to put create an array 'container' to assure
 		// that objects are serialized sequentially
@@ -1344,13 +1389,13 @@ inline void blit_impl (blit_section& ar, ptr_address<ObjectT> objaddr, unsigned 
 			blit (ar, (*oa) [i]);
 
 		//blit_array_helper (ar, *ppobj, objaddr.count, version, is_prim_t ());
-		
+
 		ar.end_area (ci, (uintptr_t)*oa);
-		
+
 		gather_logf_ident (-1, 0);
 	}
 
-	// we need to close pointer later to distinguish when a child object is inside a class or not 
+	// we need to close pointer later to distinguish when a child object is inside a class or not
 	ar.end_area (ptr_ci, (uintptr_t)oa);
 
 	gather_logf_ident (-1, 0);
@@ -1428,20 +1473,20 @@ inline void blit_to_container (T& a, std::vector<unsigned char>& odata, target_t
 }
 
 void* fixup_pointers_impl (pulmotor::blit_section_info* bsi);
-	
+
 template<class T>
 inline T* fixup_pointers (pulmotor::blit_section_info* bsi)
 {
 	return (T*)fixup_pointers_impl (bsi);
 }
-	
+
 template<class T>
 inline T* fixup_pointers (void* dataWithHeader)
 {
 	blit_section_info* bsi = get_bsi (dataWithHeader, true);
 	return (T*)fixup_pointers_impl (bsi);
 }
-	
+
 
 inline void fixup (pulmotor::blit_section_info* bsi)
 {
@@ -1449,7 +1494,7 @@ inline void fixup (pulmotor::blit_section_info* bsi)
 	uintptr_t* fixups = (uintptr_t*)((char*)bsi + bsi->fixup_offset);
 	util::fixup_pointers (data, fixups, bsi->fixup_count);
 }
-	
+
 template<class T>
 size_t write_file (pp_char const* name, T& root, target_traits const& tt, size_t sectionalign)
 {

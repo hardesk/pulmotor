@@ -9,13 +9,13 @@
 #endif
 
 namespace pulmotor {
-	
+
 namespace detail {
 
-void load_impl (char const* fname, size_t& size, u8*& data);	
+void load_impl (char const* fname, size_t& size, u8*& data);
 
 }
-	
+
 template<class T>
 class blit_holder
 {
@@ -38,7 +38,7 @@ public:
 	{
 		load (fname);
 	}
-	
+
 #if PULMOTOR_STIR_PATH_SUPPORT
 	explicit blit_holder (stir::path const& fname)
 	:	data_ (0), size_ (0)
@@ -49,7 +49,7 @@ public:
 		load (fname.c_str());
 	}
 #endif
-	
+
 	blit_holder ()
 	:	data_ (0)
 	,	size_ (0)
@@ -60,12 +60,12 @@ public:
 
 	void load (pulmotor::pp_char const* fname)
 	{
-		detail::load_impl (fname, size_, data_);		
+		detail::load_impl (fname, size_, data_);
 	#if _DEBUG
 		object_ = &ref ();
 	#endif
 	}
-	
+
 #if PULMOTOR_STIR_PATH_SUPPORT
 	void load (stir::path const& fname)
 	{ return load (fname.c_str()); }
@@ -79,7 +79,7 @@ public:
 
 	bool good () const { return data_ != 0; }
 
-	T const& ref () const { return *reinterpret_cast<T const*> (pulmotor::util::get_root_data (data_)); }	
+	T const& ref () const { return *reinterpret_cast<T const*> (pulmotor::util::get_root_data (data_)); }
 	T const* operator-> () const { return reinterpret_cast<T const*> (pulmotor::util::get_root_data (data_)); }
 };
 

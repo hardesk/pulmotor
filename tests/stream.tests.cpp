@@ -2,6 +2,8 @@
 #include <doctest.h>
 
 #include <pulmotor/stream.hpp>
+#include <pulmotor/util.hpp>
+
 
 #define T_N "pulmotor.stream.test.data"
 #define T_S 16384
@@ -28,7 +30,7 @@ TEST_CASE("pulmotor source")
 	}
 
 	pulmotor::fs_t fs = pulmotor::file_size(T_N);
-	size_t ps = pulmotor::get_pagesize();
+	size_t ps = pulmotor::util::get_pagesize();
 	CHECK( fs == T_S );
 	CHECK( (T_S % ps) == 0);
 
@@ -48,7 +50,7 @@ TEST_CASE("pulmotor source")
 		CHECK(memcmp(buffer, init.data(), T_S) == 0);
 		delete[] buffer;
 	};
-	
+
 	auto check_chunked = [&](pulmotor::source& ss)
 	{
 		size_t bs=ps/2;
@@ -124,3 +126,16 @@ TEST_CASE("pulmotor source")
 
 	unlink(T_N);
 }
+
+__attribute__((noinline)) bool stream_tests_test_code_generation_size(pulmotor::source& s, char* buff, size_t itsize)
+{
+	std::error_code ec;
+	for (size_t x=0; x<itsize*2; ) {
+		size_t got=s.fetch(buff, itsize, ec);
+		x+=got;
+		//printf("got: '%.*s'\n", (int)got, buf.get());
+		if (got==0) break;
+	}
+	return true;
+}
+

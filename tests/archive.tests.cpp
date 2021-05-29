@@ -57,7 +57,7 @@ TEST_CASE("pulmotor archive")
 	{
 		std::stringstream ss;
 		pulmotor::sink_ostream so(ss);
-		pulmotor::sink_archive ar(so);
+		pulmotor::archive_sink ar(so);
 
 		char data[]="hello";
 		ar.write_data(data, strlen(data));

@@ -2,26 +2,19 @@
 #define PULMOTOR_ARCHIVE_HPP
 
 #include "pulmotor_config.hpp"
-#include "pulmotor_fwd.hpp"
 #include "pulmotor_types.hpp"
 
 #include <type_traits>
-#include <boost/mpl/if.hpp>
 
 #include <cstdarg>
 #include <cstddef>
 #include <cassert>
 #include <vector>
 #include <algorithm>
-#include <list>
-#include <set>
-#include <map>
 #include <typeinfo>
 #include <string>
-#include <iostream>
 #include <unordered_map>
 
-#include "stream_fwd.hpp"
 #include "stream.hpp"
 #include "util.hpp"
 
@@ -38,41 +31,27 @@ enum
 	align_natural = 0
 };
 
-template<class T>
-inline typename std::enable_if<std::is_unsigned<T>::value, T>::type
-align(T offset, size_t al)
-{
-	T mask = al-1U;
-	return ((offset-1U) | mask) + 1U;
-}
 
-template<class T>
-inline typename std::enable_if<std::is_integral<T>::value, bool>::type
-is_aligned(T offset, size_t align)
-{
-	return (offset & (align-1U)) == 0;
-}
+struct serialize_context_tag {};
 
-inline size_t pad(size_t offset, size_t align)
+template<class T, class... D>
+struct serialize_context : public serialize_context_tag
 {
-	size_t a = offset & (align-1);
-	return a == 0 ? 0 : (align - a);
-}
+	typedef std::tuple<D...> data_t;
 
-template<class T>
-inline typename std::enable_if<std::is_integral<T>::value, bool>::type
-is_pow(T a)
+	serialize_context(T& o, D&&... data) : m_object(o), m_data(std::forward<D>(data)...) { }
+
+	data_t m_data;
+	T& m_object;
+};
+
+struct archive
 {
-	return a && !(a & (a-1U));
-}
+	archive() {}
+	~archive() {}
 
-struct pulmotor_archive
-{
-	pulmotor_archive() {}
-	~pulmotor_archive() {}
-
-	pulmotor_archive(pulmotor_archive const&) = delete;
-	pulmotor_archive& operator=(pulmotor_archive const&) = delete;
+	archive(archive const&) = delete;
+	archive& operator=(archive const&) = delete;
 
 	void begin_array () {}
 	void end_array () {}
@@ -80,16 +59,10 @@ struct pulmotor_archive
 	void end_object () {}
 
 	void object_name(char const*) {}
-
-	void advannce(size_t adv) {}
-
-//	template<class T>
-//	void do_version (version_t& ver) {
-//		if ((int)ver != pulmotor::version_dont_track)
-//			read_basic<1> (ver);
-//	}
-
 };
+
+template<class T>
+struct is_archive_if : std::enable_if<std::is_base_of<archive, T>::value, T> {};
 
 extern char null_32[32];
 
@@ -104,7 +77,8 @@ struct archive_write_util
 		while(1) {
 			fs_t offset = self().offset();
 			if ((offset & (al-1)) != 0) {
-				size_t write = align(offset, al) - offset;
+				size_t write = util::align(offset, al) - offset;
+				assert(write <= 32);
 				self().write_data(null_32, write < 32 ? write : 32);
 			} else
 				break;
@@ -167,7 +141,7 @@ struct archive_write_version_util
 
 		fs_t objs = 0;
 		if(vf & ver_flag_align_object) {
-			objs = align(base + block_size, forced_align);
+			objs = util::align(base + block_size, forced_align);
 			garbage_len = objs - base - sizeof garbage_len;
 		}
 
@@ -193,7 +167,7 @@ struct archive_write_version_util
 				i -= count;
 			}
 #endif
-			assert(self().offset() == align(self().offset(), forced_align) && "garbage alignment is not correct");
+			assert(self().offset() == util::align(self().offset(), forced_align) && "garbage alignment is not correct");
 		}
 	}
 
@@ -209,7 +183,7 @@ struct object_version
 
 	unsigned version() const { return v & ver_flag_mask; }
 	unsigned is_nullptr() const { return v & ver_flag_null_ptr; }
-	
+
 	operator unsigned() const { return v & ver_flag_mask; }
 };
 
@@ -228,7 +202,7 @@ struct archive_read_util
 	void align_stream(size_t al) {
 		fs_t offset = self().offset();
 		if ((offset & (al-1)) != 0)
-			self().advance(align(offset, al) - offset);
+			self().advance(util::align(offset, al) - offset);
 	}
 
 	object_version process_prefix() {
@@ -288,7 +262,7 @@ struct archive_pointer_support
 	}
 };
 
-struct archive_whole : pulmotor_archive, archive_read_util<archive_whole>
+struct archive_whole : archive, archive_read_util<archive_whole>
 {
 	archive_whole (source& s) : source_ (s) {}
 	fs_t offset() const { return source_.offset(); }
@@ -316,12 +290,13 @@ struct archive_whole : pulmotor_archive, archive_read_util<archive_whole>
 		source_.advance( size, ec_ );
 	}
 
+	std::error_code ec_;
+
 private:
 	source& source_;
-	std::error_code ec_;
 };
 
-struct archive_chunked : pulmotor_archive, archive_read_util<archive_chunked>
+struct archive_chunked : archive, archive_read_util<archive_chunked>
 {
 	archive_chunked (source& s) : source_ (s) {}
 	fs_t offset() const { return source_.offset(); }
@@ -347,8 +322,9 @@ struct archive_chunked : pulmotor_archive, archive_read_util<archive_chunked>
 		source_.fetch( dest, size, ec_ );
 	}
 
-private:
 	std::error_code ec_;
+
+private:
 	source& source_;
 };
 
@@ -370,7 +346,7 @@ object_context<T, DataT...> with_ctx (T& o, DataT&&... data)
 }
 
 template<class BaseT, class CtxT>
-class archive_with_context : public pulmotor_archive, object_context_tag
+class archive_with_context : public archive, object_context_tag
 {
 	typedef CtxT context_t;
 
@@ -410,7 +386,7 @@ public:
 template<class Arch>
 	struct is_context_carrier : public std::is_base_of<object_context_tag, Arch>::type {};
 
-class input_archive : public pulmotor_archive
+class input_archive : public archive
 {
 	basic_input_buffer& buffer_;
 	size_t offset_;
@@ -458,7 +434,7 @@ public:
 	}
 };
 
-class output_archive : public pulmotor_archive
+class output_archive : public archive
 {
 	basic_output_buffer& buffer_;
 	size_t written_;
@@ -509,7 +485,7 @@ public:
 };
 
 template<class R>
-class debug_archive : public pulmotor_archive
+class debug_archive : public archive
 {
 	R& m_actual_arch;
 	std::ostream& m_out;
@@ -596,65 +572,8 @@ public:
 };
 #endif
 
-class sink_archive : public pulmotor_archive, public archive_write_util<sink_archive>, public archive_write_version_util<sink_archive>
-{
-	sink& sink_;
-	size_t written_;
-
-public:
-	sink_archive (sink& s, unsigned flags = 0) : archive_write_version_util<sink_archive>(flags), sink_ (s), written_ (0)  {}
-
-	enum { is_reading = 0, is_writing = 1 };
-
-	size_t offset() const { return written_; }
-
-	std::error_code ec;
-
-	template<class T>
-	void do_version (version_t& ver) {
-		if ((int)ver != pulmotor::version_dont_track)
-			write_basic<1> (ver);
-	}
-
-	template<class T>
-	void write_basic (T const& data)
-	{
-		sink_.write(&data, sizeof(data), ec);
-	}
-
-
-	template<int Align, class T>
-	void write_basic (T const& data)
-	{
-		if (ec)
-			return;
-
-		if (Align != 1) {
-			char alignBuf[7] = { 0,0,0,0, 0,0,0 };
-			size_t correctOffset = util::align<Align> (written_);
-			if (size_t fill = correctOffset - written_) {
-				sink_.write (alignBuf, fill, ec);
-				if (ec)
-					return;
-				written_ += fill;
-			}
-		}
-		sink_.write (&data, sizeof(data), ec);
-		written_ += sizeof data;
-	}
-
-	void write_data (void* src, size_t size)
-	{
-		if (ec)
-			return;
-
-		sink_.write (src, size, ec);
-		written_ += size;
-	}
-};
-
 struct archive_sink
-	: public pulmotor_archive
+	: public archive
 	, public archive_write_util<archive_sink>
 	, public archive_write_version_util<archive_sink>
 	, public archive_pointer_support<archive_sink>
@@ -689,7 +608,7 @@ public:
 };
 
 struct archive_vector_out
-	: public pulmotor_archive
+	: public archive
 	, public archive_write_util<archive_vector_out>
 	, public archive_write_version_util<archive_vector_out>
 	, public archive_pointer_support<archive_vector_out>
@@ -717,7 +636,7 @@ struct archive_vector_out
 };
 
 struct archive_vector_in
-	: public pulmotor_archive
+	: public archive
 	, public archive_read_util<archive_vector_in>
 	, public archive_pointer_support<archive_vector_in>
 {
@@ -741,112 +660,21 @@ struct archive_vector_in
 	std::string str() const { return std::string(data.data(), data.size()); }
 };
 
-typedef std::vector<u8> memory_archive_container_t;
-class memory_read_archive : public pulmotor_archive
-{
-	u8 const* data_;
-	size_t size_, current_;
-public:
-	enum { is_reading = 1, is_writing = 0 };
-
-	memory_read_archive (u8 const* ptr, size_t s) : data_ (ptr), size_(s), current_(0) {}
-
-	template<class T>
-	void do_version (version_t& ver) {
-		if ((int)ver != pulmotor::version_dont_track)
-			read_basic<1> (ver);
-	}
-
-	template<int Align, class T>
-	void read_basic (T& data) {
-		if (Align != 1)
-			current_ = util::align<Align>(current_);
-
-		if (size_ - current_ >= sizeof(data)) {
-			data = *(T const*)(data_ + current_);
-			current_ += sizeof(data);
-		}
-	}
-
-	void read_data (void* dst, size_t size) {
-		if (size_ - current_ >= size) {
-			memcpy (dst, data_ + current_, size);
-			current_ += size;
-		}
-	}
-};
-
-class memory_write_archive : public pulmotor_archive
-{
-	memory_archive_container_t& cont_;
-public:
-	enum { is_reading = 0, is_writing = 1 };
-
-	memory_write_archive (memory_archive_container_t& c) : cont_ (c) {}
-
-	template<class T>
-	void do_version (version_t& ver) {
-		if ((int)ver != pulmotor::version_dont_track)
-			write_basic<1> (ver);
-	}
-
-	template<int Align, class T>
-	void write_basic (T& data) {
-		if (Align != 1) {
-			size_t aligned = util::align<Align> (cont_.size ());
-			if (size_t fill = aligned - cont_.size ())
-				cont_.insert(cont_.end (), fill, 0);
-		}
-		cont_.insert (cont_.end (), (u8 const*)&data, (u8 const*)&data + sizeof(data));
-	}
-
-	void write_data (void* src, size_t size) {
-		cont_.insert (cont_.end (), (u8 const*)src, (u8 const*)src + size);
-	}
-};
-
-
-/*
-template<class ArchiveT, class T>
-inline ArchiveT&
-	operator| (ArchiveT& ar, typename pulmotor::enable_if<
-			   std::is_base_of<pulmotor_archive, ArchiveT>::value &&
-			   !std::is_base_of<object_context_tag, T>::value, T const&>::type obj)
-{
-	archive (ar, obj);
-	return ar;
-}
-
-template<class ArchiveT, class T>
-inline ArchiveT&
-	operator| (ArchiveT& ar, typename pulmotor::enable_if<
-			   std::is_base_of<pulmotor_archive, ArchiveT>::value &&
-			   std::is_base_of<object_context_tag, T>::value, T const&>::type obj)
-{
-	typedef typename reduce_archive<ArchiveT>::type base_t;
-
-	typedef typename T::data_t data_t;
-	archive_with_context<base_t, data_t> arch_ctx (ar, obj.m_data);
-	archive (arch_ctx, obj);
-	return ar;
-}*/
-
-/*
 template<class T>
-size_t load_archive (stir::path const& pathname, T& obj, std::error_code& ec)
+size_t load_archive (path_char const* pathname, T&& obj, std::error_code& ec)
 {
-	stir::filesystem::input_buffer in (pathname, ec);
+	source_mmap s (pathname, source_mmap::ro, ec);
 	if (ec)
-		return 0;
+		return 0U;
 
-	pulmotor::input_archive inA (in);
-	pulmotor::archive (inA, obj);
+	archive_whole ar(s);
+	ar | std::forward<T>(obj);
+	ec = ar.ec_;
 
-	ec = inA.ec;
-
-	return inA.offset();
+	return ar.offset();
 }
 
+/*
 template<class T>
 size_t load_archive_debug (stir::path const& pathname, T& obj, std::error_code& ec, bool doDebug)
 {
@@ -866,23 +694,26 @@ size_t load_archive_debug (stir::path const& pathname, T& obj, std::error_code& 
 	ec = inA.ec;
 
 	return inA.offset();
-}
+}*/
 
 template<class T>
-size_t save_archive (stir::path const& pathname, T& obj, std::error_code& ec)
+size_t save_archive (path_char const* pathname, T&& obj, std::error_code& ec)
 {
-	stir::filesystem::output_buffer out (pathname, ec);
-	if (ec)
+	std::fstream os(pathname, std::ios_base::binary|std::ios_base::out);
+	if (os.good()) {
+		ec = std::make_error_code(std::errc::invalid_argument);
 		return 0;
+	}
 
-	pulmotor::output_archive outA (out);
-	pulmotor::archive (outA, obj);
+	sink_ostream s(os);
+	archive_sink ar(s);
 
-	ec = outA.ec;
+	ar | std::forward<T>(obj);
 
-	return outA.offset();
+	return ar.offset();
 }
 
+/*
 template<class T>
 size_t save_archive_debug (stir::path const& pathname, T& obj, std::error_code& ec, bool doDebug)
 {
@@ -904,6 +735,6 @@ size_t save_archive_debug (stir::path const& pathname, T& obj, std::error_code& 
 	return outA.offset();
 }*/
 
-}
+} // pulmotor
 
 #endif

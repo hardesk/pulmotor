@@ -5,12 +5,12 @@
 
 namespace pulmotor
 {
-	
+
 template<class ArchiveT, class F, class S>
 inline void archive (ArchiveT& ar, std::pair<F, S>& v, unsigned aver) {
 	ar | v.first | v.second;
 }
-	
+
 
 template<class ArchiveT, class T, class AllocatorT>
 void archive (ArchiveT& ar, std::list<T, AllocatorT>& v, unsigned version)
@@ -30,14 +30,14 @@ void archive (ArchiveT& ar, std::list<T, AllocatorT>& v, unsigned version)
 			ar | *it;
 	}
 }
-	
+
 template<bool TypeIsFundamental, bool IsReading>
 struct impl_archive_stdvector {
 	template<class ArchiveT, class T, class AllocatorT>
 	static void arch (ArchiveT& ar, std::vector<T, AllocatorT>& v, size_t sz, unsigned version) {
 		if (ArchiveT::is_reading)
 			v.resize (sz);
-		
+
 		ar & pulmotor::memblock (&*v.begin(), sz);
 	}
 };
@@ -63,25 +63,25 @@ struct impl_archive_stdvector<false, false> {
 			ar | v[i];
 	}
 };
-	
-	
+
+
 template<class ArchiveT, class T, class AllocatorT>
 void archive (ArchiveT& ar, std::vector<T, AllocatorT>& v, unsigned version)
 {
 	u32 sz = (u32)v.size ();
 	ar | sz;
-	
+
 	impl_archive_stdvector<
 		std::is_fundamental<T>::value,
 		ArchiveT::is_reading
 	>::arch (ar, v, sz, version);
 }
-	
+
 template<class ArchiveT, class Key, class T, class Compare, class Allocator>
 inline void archive (ArchiveT& ar, std::map<Key, T, Compare, Allocator>& v, unsigned aver) {
 	std_map_archive(ar, v, aver, std::integral_constant<bool, ArchiveT::is_reading>());
 }
-	
+
 template<class ArchiveT, class Key, class T, class Compare, class Allocator>
 void std_map_archive (ArchiveT& ar, std::map<Key, T, Compare, Allocator>& v, unsigned aver, pulmotor::true_t)
 {
@@ -96,12 +96,12 @@ void std_map_archive (ArchiveT& ar, std::map<Key, T, Compare, Allocator>& v, uns
 		v.insert (v);
 	}
 }
-	
+
 template<class ArchiveT, class Key, class T, class Compare, class Allocator>
 void std_map_archive (ArchiveT& ar, std::map<Key, T, Compare, Allocator>& v, unsigned aver, pulmotor::false_t)
 {
 	typedef std::map<Key, T, Compare, Allocator> map_t;
-	
+
 	ar | (pulmotor::u32)v.size();
 	for (auto const& p : v)
 		ar | p;

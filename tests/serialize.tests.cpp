@@ -34,14 +34,15 @@ doctest::String toString(std::vector<T, A> const& v) {
 	}
 	return s.c_str();
 }
-}
+
+} // std
 
 template<class T>
 struct basic_tester {
 	void operator()(T value) {
 		std::stringstream ss;
 		pulmotor::sink_ostream so(ss);
-		pulmotor::sink_archive oar(so);
+		pulmotor::archive_sink oar(so);
 
 		// write
 		oar | value;
@@ -141,7 +142,7 @@ struct bybys
 template<class T, unsigned CHECKS, unsigned Sn, unsigned LCn, unsigned SCn>
 void test_type<T,CHECKS,Sn,LCn,SCn>::check()
 {
-	using Ar = pulmotor::pulmotor_archive;
+	using Ar = pulmotor::archive;
 
 	auto f = [](auto&&...) {};
 	using F = decltype(f);
@@ -170,7 +171,7 @@ TEST_CASE("detect")
 	test_type<X2, SM , 1, 0, 0>::check();
 	test_type<X3, SV , 1, 0, 0>::check();
 	test_type<X4, SMV, 1, 0, 0>::check();
-	
+
 	test_type<X5, LC , 0, 1, 0>::check();
 	//test_type<X6P,LCMP,0, 1, 0>::check();
 	test_type<X6, LCM, 0, 1, 0>::check();
@@ -234,7 +235,7 @@ TEST_CASE("value serialize")
 			ar | a8 | a16 | a32 | a64;
 			printf("ss: %s\n", ar.str().data());
 			CHECK(ar.data == "8\0" "16323264646464"_v);
-			
+
 			archive_vector_in i(ar.data);
 			i | x8 | x16 | x32 | x64;
 			CHECK(a8==x8);
@@ -323,7 +324,7 @@ TEST_CASE("value serialize")
 		CHECK( a[0] == x[0] );
 		CHECK( a[1] == x[1] );
 	}
-	
+
 	SUBCASE("array of array")
 	{
 		A a[2][3] = { {1234, 5678, 9112}, {1234, 5678, 9556} };
@@ -339,7 +340,7 @@ TEST_CASE("value serialize")
 		CHECK( a[1][1] == x[1][1] );
 		CHECK( a[1][2] == x[1][2] );
 	}
-	
+
 	SUBCASE("nested struct")
 	{
 		N n { {1233} };
@@ -395,7 +396,6 @@ TEST_CASE("enum serialize")
 	CHECK(x1 == x);
 }
 
-
 namespace ptr_types
 {
 	struct A {
@@ -405,14 +405,13 @@ namespace ptr_types
 		template<class Ar> void save_construct(Ar& ar, unsigned version) {
 			ar | x;
 		}
-		template<class Ar, class F> static void load_construct(Ar& ar, pulmotor::ctor<A, F> const& x, unsigned version) {
+		template<class Ar, class F> static void load_construct(Ar& ar, pulmotor::ctor<A, F> const& c, unsigned version) {
 			int xx;
 			ar | xx;
-			x(xx);
-			//new (x) A (xx);
+			c(xx);
 		}
 	};
-	
+
 	struct P {
 		std::aligned_storage<sizeof(A)>::type a[1];
 
@@ -461,12 +460,72 @@ namespace ptr_types
 			ar | alloc(px, [this]() { return at::allocate(xa, 1); }, [this](A* p) { at::destroy(xa, p); } );
 		}
 	};
+
+	struct X
+	{
+		int x;
+		template<class Ar> void serialize(Ar& ar) { ar | x; }
+	};
+
+	struct Y
+	{
+		X* px {nullptr};
+
+		~Y() { delete px; }
+		void init(int x) { px = new X{x}; }
+		template<class Ar> void serialize(Ar& ar) { ar | px; }
+	};
 }
 
 TEST_CASE("ptr serialize")
 {
 	using namespace ptr_types;
 	archive_vector_out ar;
+
+	SUBCASE("serialize nullptr")
+	{
+		Y y0, y1;
+		ar | y0 | y1;
+
+		Y z0, z1;
+
+		// serializing nullptr works
+		archive_vector_in i(ar.data);
+		i | z0;
+		CHECK(z0.px == nullptr);
+
+		// deserializing nullptr over ptr nullifies pointer
+		z1.init(-1);
+		i | z1;
+		CHECK(z1.px == nullptr);
+	}
+
+	SUBCASE("serialize pointer")
+	{
+		Y y1, y2, y3;
+		y1.init(0x11111111);
+		y2.init(0x22222222);
+		y3.init(0x33333333);
+		ar | y1 | y2 | y3;
+
+		Y z1, z2;
+		archive_vector_in i(ar.data);
+
+		i | z1; // deserialize onto null ptr
+		CHECK(z1.px != nullptr);
+		CHECK(z1.px != y1.px);
+		CHECK(z1.px->x == y1.px->x);
+
+		z2.init(0xaaaaaaaa);
+		i | z2; // deserialize ptr over existing ptr
+		CHECK(z2.px != y2.px);
+		CHECK(z2.px != nullptr);
+		CHECK(z2.px->x == z2.px->x);
+
+		i | z2; // deserializing over exising (deserialized) ptr
+		CHECK(z2.px != nullptr);
+		CHECK(z2.px->x == y3.px->x);
+	}
 
 	SUBCASE("load construct")
 	{
@@ -488,15 +547,21 @@ TEST_CASE("ptr serialize")
 		std::set<void*> ps;
 		auto ma = [&ps] () { void* p = malloc(sizeof(A)); ps.insert(p); return p; };
 		auto da = [&ps] (void* p) { CHECK(ps.count(p) == 1); ps.erase(p); free(p); };
-		auto s = [&] (auto& ar, A*& a) { ar | alloc(a, ma); };
+		auto s = [&] (auto& ar, A*& a) { ar | alloc(a, ma, da); };
 
 		A* a = new (ma()) A(5555);
+		s(ar, a);
 		s(ar, a);
 
 		archive_vector_in i(ar.data);
 		A* aa = nullptr;
 		s(i, aa);
+		CHECK(aa != a);
+		CHECK(a->x == aa->x);
 
+		aa->x = 137;
+		s(i, aa);
+		CHECK(aa != a);
 		CHECK(a->x == aa->x);
 
 		da(a);
@@ -540,23 +605,10 @@ TEST_CASE("ptr serialize")
 
 		CHECK(a1.x == a2.x);
 
-
 		P p2(200);
 		i | p2;
 		CHECK(p1.getA().x == p2.getA().x);
 
-	}
-
-	SUBCASE("with allocator")
-	{
-		Za za(10);
-		ar | za;
-
-		archive_vector_in i(ar.data);
-		Za zb(0);
-		i | zb;
-
-		CHECK(za.px->x == zb.px->x);
 	}
 
 	SUBCASE("with allocator and destroy and null")
@@ -582,6 +634,18 @@ TEST_CASE("ptr serialize")
 		CHECK(zy1.px->x == zb1.px->x);
 	}
 
+	SUBCASE("with allocator")
+	{
+		Za za(10);
+		ar | za;
+
+		archive_vector_in i(ar.data);
+		Za zb(0);
+		i | zb;
+
+		CHECK(za.px->x == zb.px->x);
+	}
+
 	SUBCASE("emplace")
 	{
 		A* a = new A(10);
@@ -592,6 +656,7 @@ TEST_CASE("ptr serialize")
 		i | construct<A>(aa, [](int a) { return new A(a); }, [](A* p) { delete p; } );
 
 		REQUIRE(aa != nullptr);
+		CHECK(aa != a);
 		CHECK(aa->x == a->x);
 
 		bool did_delete = false;
@@ -673,8 +738,8 @@ void load_construct(A& ar, pulmotor::ctor<XX, F> const& cc, unsigned version)
 	cc(aa, bb);
 }
 
-static_assert(pulmotor::access::detect<pulmotor::pulmotor_archive>::template has_load_construct<XX>::value == true, "detection is failing");
-static_assert(pulmotor::access::detect<pulmotor::pulmotor_archive>::template has_save_construct<XX>::value == true, "detection is failing");
+static_assert(pulmotor::access::detect<pulmotor::archive>::template has_load_construct<XX>::value == true, "detection is failing");
+static_assert(pulmotor::access::detect<pulmotor::archive>::template has_save_construct<XX>::value == true, "detection is failing");
 
 template<class A, class T, class Al>
 void serialize(A& ar, std::vector<T, Al>& v)
