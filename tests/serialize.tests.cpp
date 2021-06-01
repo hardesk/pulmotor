@@ -114,33 +114,37 @@ struct X2 { template<class Ar> void serialize(Ar& ar) { } };
 struct X3 { }; template<class Ar> void serialize(Ar& ar, X3& x, unsigned version) { }
 struct X4 { template<class Ar> void serialize(Ar& ar, unsigned version) { } };
 
-struct X5P { }; template<class Ar> void load_construct(Ar& ar, X5P*& o, unsigned) { }
-struct X6P { template<class Ar> static void load_construct(Ar& ar, X6P*&, unsigned version) { } };
+struct XL1 { }; template<class Ar> void serialize_load(Ar& ar, XL1& x) { }
+struct XL2 { template<class Ar> void serialize_load(Ar& ar) { } };
+struct XL3 { }; template<class Ar> void serialize_load(Ar& ar, XL3& x, unsigned version) { }
+struct XL4 { template<class Ar> void serialize_load(Ar& ar, unsigned version) { } };
+
+struct XS1 { }; template<class Ar> void serialize_save(Ar& ar, XS1& x) { }
+struct XS2 { template<class Ar> void serialize_save(Ar& ar) { } };
+struct XS3 { }; template<class Ar> void serialize_save(Ar& ar, XS3& x, unsigned version) { }
+struct XS4 { template<class Ar> void serialize_save(Ar& ar, unsigned version) { } };
+
 struct X5 { }; template<class Ar, class F> void load_construct(Ar& ar, pulmotor::ctor<X5, F> const& o, unsigned) { }
 struct X6 { template<class Ar, class F> static void load_construct(Ar& ar, pulmotor::ctor<X6, F> const& o, unsigned version) { } };
-
 struct X7 { }; template<class Ar> void save_construct(Ar& ar, X7& x, unsigned version) { }
 struct X8 { template<class Ar> void save_construct(Ar& ar, unsigned version) { } };
 
-enum { S = 1, SM = 2, SV = 4, SMV = 8, LC = 16, LCM = 32, SC = 64, SCM = 128, LCP = 256, LCMP = 512 };
-template<class T, unsigned CHECKS, unsigned Sn, unsigned LCn, unsigned SCn>
+enum {
+	S = 1, SM = 2, SV = 4, SMV = 8,
+	LC = 16, LCM = 32, SC = 64, SCM = 128,
+	LCP = 256, LCMP = 512,
+	SL = 1024, SLM =2048, SLV = 4096, SLMV = 8192,
+	SS = 16384, SSM = 32768, SSV = 65536, SSMV = 131072
+};
+
+template<class T, unsigned CHECKS, unsigned Sn, unsigned SLn, unsigned SSn, unsigned LCn, unsigned SCn>
 struct test_type
 {
 	static void check();
 };
 
-struct FF {
-	template<class U, class... Args> void operator()(Args const&... args) {}
-};
-
-template<class A, class T, class F>
-struct bybys
-{
-	using BB = decltype( load_construct(std::declval<A&>(), std::declval<ctor<T,F>&>(), 0U) );
-};
-
-template<class T, unsigned CHECKS, unsigned Sn, unsigned LCn, unsigned SCn>
-void test_type<T,CHECKS,Sn,LCn,SCn>::check()
+template<class T, unsigned CHECKS, unsigned Sn, unsigned SLn, unsigned SSn, unsigned LCn, unsigned SCn>
+void test_type<T,CHECKS,Sn,SLn,SSn,LCn,SCn>::check()
 {
 	using Ar = pulmotor::archive;
 
@@ -150,6 +154,17 @@ void test_type<T,CHECKS,Sn,LCn,SCn>::check()
 	CHECK(access::detect<Ar>::has_serialize_mem<T>::value == ((CHECKS & SM) != 0));
 	CHECK(access::detect<Ar>::has_serialize_version<T>::value == ((CHECKS & SV) != 0));
 	CHECK(access::detect<Ar>::has_serialize_mem_version<T>::value == ((CHECKS & SMV) != 0));
+
+	CHECK(access::detect<Ar>::has_serialize_load<T>::value == ((CHECKS & SL) != 0));
+	CHECK(access::detect<Ar>::has_serialize_load_mem<T>::value == ((CHECKS & SLM) != 0));
+	CHECK(access::detect<Ar>::has_serialize_load_version<T>::value == ((CHECKS & SLV) != 0));
+	CHECK(access::detect<Ar>::has_serialize_load_mem_version<T>::value == ((CHECKS & SLMV) != 0));
+
+	CHECK(access::detect<Ar>::has_serialize_save<T>::value == ((CHECKS & SS) != 0));
+	CHECK(access::detect<Ar>::has_serialize_save_mem<T>::value == ((CHECKS & SSM) != 0));
+	CHECK(access::detect<Ar>::has_serialize_save_version<T>::value == ((CHECKS & SSV) != 0));
+	CHECK(access::detect<Ar>::has_serialize_save_mem_version<T>::value == ((CHECKS & SSMV) != 0));
+
 	CHECK(access::detect<Ar>::has_load_construct<T>::value == ((CHECKS & LC) != 0));
 	CHECK(access::detect<Ar>::has_load_construct_mem<T>::value == ((CHECKS & LCM) != 0));
 	CHECK(access::detect<Ar>::has_save_construct<T>::value == ((CHECKS & SC) != 0));
@@ -166,17 +181,25 @@ TEST_CASE("detect")
 {
 	using namespace detect_serialize;
 
+	test_type<X1,  S  , 1, 0, 0, 0, 0>::check();
+	test_type<X2,  SM , 1, 0, 0, 0, 0>::check();
+	test_type<X3,  SV , 1, 0, 0, 0, 0>::check();
+	test_type<X4,  SMV, 1, 0, 0, 0, 0>::check();
 
-	test_type<X1, S  , 1, 0, 0>::check();
-	test_type<X2, SM , 1, 0, 0>::check();
-	test_type<X3, SV , 1, 0, 0>::check();
-	test_type<X4, SMV, 1, 0, 0>::check();
+	test_type<XL1, SL , 0, 1, 0, 0, 0>::check();
+	test_type<XL2, SLM, 0, 1, 0, 0, 0>::check();
+	test_type<XL3, SLV, 0, 1, 0, 0, 0>::check();
+	test_type<XL4, SLMV,0, 1, 0, 0, 0>::check();
 
-	test_type<X5, LC , 0, 1, 0>::check();
-	//test_type<X6P,LCMP,0, 1, 0>::check();
-	test_type<X6, LCM, 0, 1, 0>::check();
-	test_type<X7, SC , 0, 0, 1>::check();
-	test_type<X8, SCM, 0, 0, 1>::check();
+	test_type<XS1, SS , 0, 0, 1, 0, 0>::check();
+	test_type<XS2, SSM, 0, 0, 1, 0, 0>::check();
+	test_type<XS3, SSV, 0, 0, 1, 0, 0>::check();
+	test_type<XS4, SSMV,0, 0, 1, 0, 0>::check();
+
+	test_type<X5, LC , 0, 0, 0, 1, 0>::check();
+	test_type<X6, LCM, 0, 0, 0, 1, 0>::check();
+	test_type<X7, SC , 0, 0, 0, 0, 1>::check();
+	test_type<X8, SCM, 0, 0, 0, 0, 1>::check();
 }
 
 TEST_CASE("value serialize")
@@ -284,7 +307,6 @@ TEST_CASE("value serialize")
 			CHECK(a8==x8);
 			CHECK(a64==x64);
 		}
-
 	}
 
 	using namespace test_types;
@@ -705,6 +727,71 @@ TEST_CASE("ptr serialize")
 		S4(xx);
 	}*/
 #endif
+}
+
+namespace loadsave_types
+{
+
+	struct S { int x; };
+	template<class Ar> void serialize_load(Ar& ar, S& x) { ar | x.x; }
+	template<class Ar> void serialize_save(Ar& ar, S& x) { ar | x.x; }
+
+	struct SM {
+		int x;
+		template<class Ar> void serialize_load(Ar& ar) { ar | x; }
+		template<class Ar> void serialize_save(Ar& ar) { ar | x; }
+	};
+
+	struct SV { int x; };
+	template<class Ar> void serialize_load(Ar& ar, SV& x, unsigned version) { ar | x.x; }
+	template<class Ar> void serialize_save(Ar& ar, SV& x, unsigned version) { ar | x.x; }
+
+	struct SMV {
+		int x;
+		template<class Ar> void serialize_load(Ar& ar, unsigned version) { ar | x; }
+		template<class Ar> void serialize_save(Ar& ar, unsigned version) { ar | x; }
+	};
+}
+
+TEST_CASE("load save variants")
+{
+	using namespace loadsave_types;
+	archive_vector_out ar;
+
+	auto p = [&ar](auto& x0, auto& x1, auto& z0, auto& z1)
+	{
+		ar | x0 | x1;
+
+		archive_vector_in i(ar.data);
+		i | z0 | z1;
+
+		CHECK(z0.x == x0.x);
+		CHECK(z1.x == x1.x);
+	};
+
+	SUBCASE("serialize_load/save")
+	{
+		S x0{0}, x1{100}, z0, z1;
+		p(x0, x1, z0, z1);
+	}
+
+	SUBCASE("serialize_load/save member")
+	{
+		SM x0{0}, x1{100}, z0, z1;
+		p(x0, x1, z0, z1);
+	}
+
+	SUBCASE("serialize_save/load version")
+	{
+		SV x0{0}, x1{100}, z0, z1;
+		p(x0, x1, z0, z1);
+	}
+
+	SUBCASE("serialize_save/load member version")
+	{
+		SMV x0{0}, x1{100}, z0, z1;
+		p(x0, x1, z0, z1);
+	}
 }
 
 #if 0
