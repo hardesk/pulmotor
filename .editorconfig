@@ -1,8 +1,15 @@
+#root=true
+
 [*]
 charset = utf-8
+insert_final_newline=true
+trim_trailing_whitespace=true
+end_of_line=lf
+
+[*.{h,hpp,c,cpp,cxx,cc}]
 indent_style=tab
 indent_size=4
-end_of_line=lf
-trim_trailing_whitespace=true
-insert_final_newline=true
-root=true
+
+[*.md]
+indent_size=4
+ident_style=space

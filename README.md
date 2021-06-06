@@ -15,40 +15,40 @@ An example follows:
 
 struct X
 {
-	int x;
-	template<class Ar> void serialize(Ar& ar) { ar | x; }
+    int x;
+    template<class Ar> void serialize(Ar& ar) { ar | x; }
 };
 
 struct Y
 {
-	X* px {nullptr};
-	~Y() { delete px; }
+    X* px {nullptr};
+    ~Y() { delete px; }
 
-	void init() { pa = new A(); }
+    void init() { pa = new A(); }
 
-	template<class Ar> void serialize(Ar& ar) { ar | px; }
+    template<class Ar> void serialize(Ar& ar) { ar | px; }
 };
 
 
 int main()
 {
-	pulmotor::archive_vector_out ar;
+    pulmotor::archive_vector_out ar;
 
-	Y y;
-	y.init(100);
-	ar | y;
+    Y y;
+    y.init(100);
+    ar | y;
 
-	using namespace std;
-	std::fstream fs("data", ios::out|ios::binary|ios::trunc);
-	fs.write(ar.data.data(), ar.data.size());
+    using namespace std;
+    std::fstream fs("data", ios::out|ios::binary|ios::trunc);
+    fs.write(ar.data.data(), ar.data.size());
 
 
-	Y z;
-	pulmotor::archive_vector_in in(ar.data);
-	in | z;
+    Y z;
+    pulmotor::archive_vector_in in(ar.data);
+    in | z;
 
-	assert(z.px != y.px);
-	assert(z.px->x == y.px->y);
+    assert(z.px != y.px);
+    assert(z.px->x == y.px->y);
 }
 ```
 
@@ -60,24 +60,24 @@ int main()
  [comment]
  VF - version/flags
 
-<serializable>		:= <primitive>
-				 	 | <primitive-array>
-					 | VF <struct>
-					 | VF <struct-array>
-					 | VF <pointer>
-				 	 | VF <pointer-array>
-				 	 | PLACE(area) <pointer>
-				 	 | CONSTRUCT(ptr) <pointer>
-				 	 | ALLOC <pointer>
-				 	 | PTR <pointer>
+<serializable>      := <primitive>
+                     | <primitive-array>
+                     | VF <struct>
+                     | VF <struct-array>
+                     | VF <pointer>
+                     | VF <pointer-array>
+                     | PLACE(area) <pointer>
+                     | CONSTRUCT(ptr) <pointer>
+                     | ALLOC <pointer>
+                     | PTR <pointer>
 
-<pointer>			:= PTR-ID? <serializable>
-<pointer-array>		:= SIZE (PTR-ID? <serializable>){SIZE}
-<struct-array>		:= SIZE <struct>{SIZE}
-<struct>			:= [--> call custom function] <serializable> *
-<primitive-array>	:= SIZE <primitive>{SIZE}
-<primitive>			:= arithmetic# | enum#
+<pointer>           := PTR-ID? <serializable>
+<pointer-array>     := SIZE (PTR-ID? <serializable>){SIZE}
+<struct-array>      := SIZE <struct>{SIZE}
+<struct>            := [--> call custom function] <serializable> *
+<primitive-array>   := SIZE <primitive>{SIZE}
+<primitive>         := arithmetic# | enum#
 ```
 
-save-load-data	--> save-load if save-load-construct is available otherwise try to empty-construct and do serialize
-CONSTRUXT(p)	--> do save-construct; do load-construct and store ptr if non-null; do load-construct and do not expect return value
+save-load-data  --> save-load if save-load-construct is available otherwise try to empty-construct and do serialize
+CONSTRUXT(p)    --> do save-construct; do load-construct and store ptr if non-null; do load-construct and do not expect return value
