@@ -39,6 +39,31 @@ struct ctor_pure : D
 	template<class... Args> auto operator()(Args&&... args) const { return cf(args...); }
 };
 
+template<class T>
+struct fun_traits;
+
+template<size_t I, class T, class... Args> struct arg_ii { using type = typename arg_ii<I-1, Args...>::type; };
+template<class T, class... Args> struct arg_ii<0U, T, Args...> { using type = T; };
+template<size_t I, class... Args> struct arg_i { using type = typename arg_ii<I, Args...>::type; };
+template<size_t I> struct arg_i<I> { using type = void; };
+
+template<class R, class T, class... Args>
+struct fun_traits<R (T::*)(Args...)>
+{
+    static constexpr unsigned arity = sizeof...(Args);
+    using return_type = R;
+    using class_type = T;
+    template<size_t I> using arg = typename arg_i<I, Args...>::type;
+};
+
+template<class R, class... Args>
+struct fun_traits<R (*)(Args...)>
+{
+    static constexpr unsigned arity = sizeof...(Args);
+    using return_type = R;
+    template<size_t I> using arg = typename arg_i<I, Args...>::type;
+};
+
 struct access
 {
 	struct dummy_F { template<class... Args> auto operator()(Args&&... args); };
@@ -46,67 +71,49 @@ struct access
     template<class Ar>
     struct detect {
 
-        template<class T, class = void> struct has_serialize				: std::false_type {};
-        template<class T, class = void> struct has_serialize_mem			: std::false_type {};
+        template<class T, class = void> struct has_serialize					: std::false_type {};
+        template<class T, class = void> struct has_serialize_mem				: std::false_type {};
 
-        template<class T, class = void> struct has_serialize_version		: std::false_type {};
-        template<class T, class = void> struct has_serialize_mem_version	: std::false_type {};
+        template<class T, class = void> struct has_serialize_version			: std::false_type {};
+        template<class T, class = void> struct has_serialize_mem_version		: std::false_type {};
 
-        template<class T, class = void> struct has_serialize_load			: std::false_type {};
-        template<class T, class = void> struct has_serialize_load_mem		: std::false_type {};
-        template<class T, class = void> struct has_serialize_load_version	: std::false_type {};
-        template<class T, class = void> struct has_serialize_load_mem_version : std::false_type {};
+        template<class T, class = void> struct has_serialize_load				: std::false_type {};
+        template<class T, class = void> struct has_serialize_load_mem			: std::false_type {};
+        template<class T, class = void> struct has_serialize_load_version		: std::false_type {};
+        template<class T, class = void> struct has_serialize_load_mem_version	: std::false_type {};
 
-        template<class T, class = void> struct has_serialize_save			: std::false_type {};
-        template<class T, class = void> struct has_serialize_save_mem		: std::false_type {};
-        template<class T, class = void> struct has_serialize_save_version	: std::false_type {};
-        template<class T, class = void> struct has_serialize_save_mem_version : std::false_type {};
+        template<class T, class = void> struct has_serialize_save				: std::false_type {};
+        template<class T, class = void> struct has_serialize_save_mem			: std::false_type {};
+        template<class T, class = void> struct has_serialize_save_version		: std::false_type {};
+        template<class T, class = void> struct has_serialize_save_mem_version	: std::false_type {};
 
-        template<class T, class = void> struct has_load_construct			: std::false_type {};
-        template<class T, class = void> struct has_load_construct_mem		: std::false_type {};
+        template<class T, class = void> struct has_load_construct				: std::false_type {};
+        template<class T, class = void> struct has_load_construct_mem			: std::false_type {};
 
-        template<class T, class = void> struct has_save_construct			: std::false_type {};
-        template<class T, class = void> struct has_save_construct_mem		: std::false_type {};
+        template<class T, class = void> struct has_save_construct				: std::false_type {};
+        template<class T, class = void> struct has_save_construct_mem			: std::false_type {};
 
-        template<class T> struct has_serialize<T,					std::void_t<decltype( serialize(std::declval<Ar&>(), std::declval<T&>()) )> >          : std::true_type {};
-        template<class T> struct has_serialize_mem<T,				std::void_t<decltype( std::declval<T&>().serialize(std::declval<Ar&>()) )> >           : std::true_type {};
+        template<class T> struct has_serialize<T,					std::void_t< decltype( serialize(std::declval<Ar&>(), std::declval<T&>()) )> > : std::true_type {};
+        template<class T> struct has_serialize_mem<T,				std::void_t< decltype( std::declval<T&>().T::serialize(std::declval<Ar&>()) )> > : std::true_type {};
 
-        template<class T> struct has_serialize_version<T,			std::void_t<decltype( serialize(std::declval<Ar&>(), std::declval<T&>(), 0U) )> >      : std::true_type {};
-        template<class T> struct has_serialize_mem_version<T,		std::void_t<decltype( std::declval<T&>().serialize(std::declval<Ar&>(), 0U) )> >       : std::true_type {};
+        template<class T> struct has_serialize_version<T,			std::void_t< decltype( serialize(std::declval<Ar&>(), std::declval<T&>(), 0U) )> > : std::true_type {};
+        template<class T> struct has_serialize_mem_version<T,		std::void_t< decltype( std::declval<T&>().T::serialize(std::declval<Ar&>(), 0U) )> > : std::true_type {};
 
-        template<class T> struct has_serialize_load<T,              std::void_t<decltype( serialize_load(std::declval<Ar&>(), std::declval<T&>()) )> >          : std::true_type {};
-        template<class T> struct has_serialize_load_mem<T,          std::void_t<decltype( std::declval<T&>().serialize_load(std::declval<Ar&>()) )> >           : std::true_type {};
-        template<class T> struct has_serialize_load_version<T,      std::void_t<decltype( serialize_load(std::declval<Ar&>(), std::declval<T&>(), 0U) )> >      : std::true_type {};
-        template<class T> struct has_serialize_load_mem_version<T,  std::void_t<decltype( std::declval<T&>().serialize_load(std::declval<Ar&>(), 0U) )> >       : std::true_type {};
+        template<class T> struct has_serialize_load<T,              std::void_t< decltype( serialize_load(std::declval<Ar&>(), std::declval<T&>()) )> > : std::true_type {};
+        template<class T> struct has_serialize_load_mem<T,          std::void_t< decltype( std::declval<T&>().T::serialize_load(std::declval<Ar&>()) )> > : std::true_type {};
+        template<class T> struct has_serialize_load_version<T,      std::void_t< decltype( serialize_load(std::declval<Ar&>(), std::declval<T&>(), 0U) )> > : std::true_type {};
+        template<class T> struct has_serialize_load_mem_version<T,  std::void_t< decltype( std::declval<T&>().T::serialize_load(std::declval<Ar&>(), 0U) )> > : std::true_type {};
 
-        template<class T> struct has_serialize_save<T,              std::void_t<decltype( serialize_save(std::declval<Ar&>(), std::declval<T&>()) )> >          : std::true_type {};
-        template<class T> struct has_serialize_save_mem<T,          std::void_t<decltype( std::declval<T&>().serialize_save(std::declval<Ar&>()) )> >           : std::true_type {};
-        template<class T> struct has_serialize_save_version<T,      std::void_t<decltype( serialize_save(std::declval<Ar&>(), std::declval<T&>(), 0U) )> >      : std::true_type {};
-        template<class T> struct has_serialize_save_mem_version<T,  std::void_t<decltype( std::declval<T&>().serialize_save(std::declval<Ar&>(), 0U) )> >       : std::true_type {};
+        template<class T> struct has_serialize_save<T,              std::void_t< decltype( serialize_save(std::declval<Ar&>(), std::declval<T&>()) )> > : std::true_type {};
+        template<class T> struct has_serialize_save_mem<T,          std::void_t< decltype( std::declval<T&>().T::serialize_save(std::declval<Ar&>()) )> > : std::true_type {};
+        template<class T> struct has_serialize_save_version<T,      std::void_t< decltype( serialize_save(std::declval<Ar&>(), std::declval<T&>(), 0U) )> > : std::true_type {};
+        template<class T> struct has_serialize_save_mem_version<T,  std::void_t< decltype( std::declval<T&>().T::serialize_save(std::declval<Ar&>(), 0U) )> > : std::true_type {};
 
-        template<class T> struct has_load_construct<T,				std::void_t<decltype( load_construct(std::declval<Ar&>(), std::declval<ctor<T,dummy_F>&>(), 0U) )> >  : std::true_type {};
-        template<class T> struct has_load_construct_mem<T,			std::void_t<decltype( T::load_construct(std::declval<Ar&>(), std::declval<ctor<T,dummy_F>&>(), 0U) )> >   : std::true_type {};
+        template<class T> struct has_load_construct<T,				std::void_t< decltype( load_construct(std::declval<Ar&>(), std::declval<ctor<T,dummy_F>&>(), 0U) )> > : std::true_type {};
+        template<class T> struct has_load_construct_mem<T,			std::void_t< decltype( T::load_construct(std::declval<Ar&>(), std::declval<ctor<T,dummy_F>&>(), 0U) )> > : std::true_type {};
 
-        template<class T> struct has_save_construct<T,				std::void_t<decltype( save_construct(std::declval<Ar&>(), std::declval<T&>(), 0U) )> >   : std::true_type {};
-        template<class T> struct has_save_construct_mem<T,			std::void_t<decltype( std::declval<T>().save_construct(std::declval<Ar&>(), 0U) )> >   : std::true_type {};
-
-        template<class T> struct count_serialize : std::integral_constant<unsigned,
-			has_serialize<T>::value +
-			has_serialize_version<T>::value +
-			has_serialize_mem<T>::value +
-			has_serialize_mem_version<T>::value> {};
-
-        template<class T> struct count_serialize_load : std::integral_constant<unsigned,
-			has_serialize_load<T>::value +
-			has_serialize_load_version<T>::value +
-			has_serialize_load_mem<T>::value +
-			has_serialize_load_mem_version<T>::value> {};
-
-        template<class T> struct count_serialize_save : std::integral_constant<unsigned,
-			has_serialize_save<T>::value +
-			has_serialize_save_version<T>::value +
-			has_serialize_save_mem<T>::value +
-			has_serialize_save_mem_version<T>::value> {};
+        template<class T> struct has_save_construct<T,				std::void_t< decltype( save_construct(std::declval<Ar&>(), std::declval<T&>(), 0U) )> > : std::true_type {};
+        template<class T> struct has_save_construct_mem<T,			std::void_t< decltype( std::declval<T>().T::save_construct(std::declval<Ar&>(), 0U) )> > : std::true_type {};
 
         template<class T> struct count_load_construct : std::integral_constant<unsigned,
 			has_load_construct<T>::value +
@@ -124,7 +131,7 @@ struct access
 		(detect<Ar>::template count_load_construct<Tb>::value > 0)
 	>
 	{
-		static_assert(std::is_base_of<archive, Ar>::value == true, "Ar must be archive type");
+		static_assert(std::is_base_of<archive, Ar>::value == true, "Ar must be an archive type");
 		static_assert(std::is_same<Tb, std::remove_cv_t<Tb>>::value);
 	};
 
@@ -134,15 +141,6 @@ struct access
 		template<class Ar>
 		static void do_serialize(Ar& ar, T& o, unsigned version) {
 			using bare = std::remove_cv_t<T>;
-			constexpr unsigned ln = detect<Ar>::template count_serialize_load<bare>::value;
-			constexpr unsigned sn = detect<Ar>::template count_serialize_save<bare>::value;
-			constexpr unsigned n = detect<Ar>::template count_serialize<bare>::value;
-			PULMOTOR_SERIALIZE_ASSERT(n <= 1, "multiple 'serialize' defined for T");
-			PULMOTOR_SERIALIZE_ASSERT(ln == sn, "'serialize_load' must be defined when defining 'serialize_save' (and vice versa)");
-			PULMOTOR_SERIALIZE_ASSERT((n == 0 && ln > 0 && sn > 0) || (n > 0 && ln == 0 && sn == 0), "only define either 'serialize' or 'serilize_load/save'");
-			PULMOTOR_SERIALIZE_ASSERT(n == 1 || (n == 0 && ln == 1), "ambiguity: multiple 'serialize_load' defined");
-			PULMOTOR_SERIALIZE_ASSERT(n == 1 || (n == 0 && sn == 1) || n == 1, "ambiguity: multiple 'serialize_save' defined");
-			PULMOTOR_SERIALIZE_ASSERT(n > 0 || sn > 0, "no suitable 'serialize' method for type T was detected");
 		   	if constexpr(detect<Ar>::template has_serialize_mem_version<bare>::value)
 				o.serialize(ar, version);
 			else if constexpr(detect<Ar>::template has_serialize_mem<bare>::value)
@@ -175,8 +173,6 @@ struct access
 		template<class Ar, class F, class D>
 		static void do_load_construct(Ar& ar, ctor<T, F, D> const& c, unsigned version) {
 			using bare = typename ctor<T, F>::type;//std::remove_cv_t<T>;
-			//PULMOTOR_SERIALIZE_ASSERT(detect<Ar>::template count_load_construct<bare, F>::value > 0, "no suitable load_construct method for type T was detected");
-			//PULMOTOR_SERIALIZE_ASSERT(detect<Ar>::template count_load_construct<bare, F>::value == 1, "multiple load_construct defined for T");
 			if constexpr(detect<Ar>::template has_load_construct_mem<bare>::value)
 				T::load_construct(ar, c, version);
 			else if constexpr(detect<Ar>::template has_load_construct<bare>::value)
@@ -186,8 +182,7 @@ struct access
 				bare* p = c();
 				ar | *p;
 			}*/ else
-
-				static_assert(!std::is_same<T, T>::value, "attempting to call load_construct but no suitable is declared, and not serialize fallback detected");
+				static_assert(!std::is_same<T, T>::value, "attempting to call load_construct but no suitable was declared, and no serialize fallback detected");
 		}
 
 		template<class Ar>
@@ -254,6 +249,15 @@ alloc(T*& p, AF const& af, DF const& df)
 	return alloc_t<bare, AF, deallocate_holder<bare, DF>>{&p, af, deallocate_holder<bare, DF>{df}};
 }
 
+template<class T>			struct base_t { using type = T; T* p; };
+template<class T = void>	struct is_base : std::false_type {};
+template<class T>			struct is_base<base_t<T>> : std::true_type {};
+template<class B, class T>
+inline base_t<B> base(T* p) {
+	static_assert(!std::is_same<B, T>::value, "infinite recursion. argument to pulmotor::base should be a base class type");
+	static_assert(std::is_base_of<B, T>::value, "'base' argument is not a base class");
+	return base_t<B>{p};
+}
 
 
 template<class T, class C>
@@ -312,13 +316,6 @@ struct logic
 	template<class Ar>
 	static void s_pointer(Ar& ar, Tb* p, object_version version, std::false_type) // wants-load-save = false
 	{
-		/*if constexpr( Ar::is_reading ) {
-			if (!version.is_nullptr())
-				access::call<Tb>::do_serialize(ar, *p, version);
-		} else if constexpr( Ar::is_writing ) {
-			if (p) access::call<Tb>::do_serialize(ar, *p, version);
-		}*/
-
 		if (p)
 			logic<Tb>::s_serializable(ar, *p);
 	}
@@ -351,7 +348,6 @@ struct logic
 	template<bool WantConstruct, class AF, class DF>
 	static void prepare_area(Tb** pp, bool doalloc, AF af, DF df)
 	{
-		//using wc = typename access::wants_construct<Ar, Tb>::type;
 		if constexpr(WantConstruct)
 			logic<Tb>::destruct_or_alloc(*pp, doalloc, af, df);
 		else
@@ -431,19 +427,20 @@ struct logic
 				if constexpr(std::is_arithmetic<Ta>::value || std::is_enum<Ta>::value)
 					logic<Tb>::s_primitive_array(ar, o);
 				else if constexpr(std::is_pointer<Ta>::value) {
-					static_assert(!std::is_same<Ta, Ta>::value, "Array of pointers is not supported yet");
+					static_assert(!std::is_same<Ta, Ta>::value, "array of pointers is not supported yet");
 				} else {
 					object_version v = logic<Tb>::s_version(ar, &o); // <<------- what to pass here?
 					logic<Tb>::s_struct_array(ar, o, v);
 				}
 			} else {
-				//static_assert(!std::is_same<Ta, Ta>::value, "Array of arrays is not supported yet");
-
 				using Ta = typename std::remove_extent<Tb>::type;
 				for (size_t i=0; i<std::extent<Tb>::value; ++i)
 					logic<Ta>::s_serializable( ar, o[i] );
 			}
-
+		} else if constexpr(is_base<Tb>::value) {
+			using Tp = typename Tb::type;
+			object_version v = logic<Tp>::s_version(ar, o.p);
+			logic<Tp>::s_struct(ar, *o.p, v);
 		} else if constexpr(std::is_arithmetic<Tb>::value || std::is_enum<Tb>::value) {
 			s_primitive(ar, o);
 		} else if constexpr(std::is_class<Tb>::value || std::is_union<Tb>::value) {
@@ -516,7 +513,6 @@ struct logic
 };
 
 template<class ArchiveT, class T>
-//inline typename pulmotor::enable_if<std::is_base_of<archive, ArchiveT>::value, ArchiveT>::type&
 inline typename is_archive_if<ArchiveT>::type&
 operator| (ArchiveT& ar, T const& obj)
 {

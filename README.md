@@ -10,6 +10,7 @@ The serialization API is similar to boost serialization. Instead though, the lib
 - `emplace` support when de-serializing objects.
 
 An example follows:
+
 ```
 #include <pulmotor/pulmotor.hpp>
 
@@ -26,7 +27,7 @@ struct Y
 
     void init() { pa = new A(); }
 
-    template<class Ar> void serialize(Ar& ar) { ar | px; }
+    template<class Ar> void serialize(Ar& ar, unsigned version) { ar | px; }
 };
 
 
@@ -42,7 +43,6 @@ int main()
     std::fstream fs("data", ios::out|ios::binary|ios::trunc);
     fs.write(ar.data.data(), ar.data.size());
 
-
     Y z;
     pulmotor::archive_vector_in in(ar.data);
     in | z;
@@ -57,9 +57,6 @@ int main()
 ## Serialization Structure
 
 ```
- [comment]
- VF - version/flags
-
 <serializable>      := <primitive>
                      | <primitive-array>
                      | VF <struct>
@@ -70,6 +67,7 @@ int main()
                      | CONSTRUCT(ptr) <pointer>
                      | ALLOC <pointer>
                      | PTR <pointer>
+                     | BASE <struct>
 
 <pointer>           := PTR-ID? <serializable>
 <pointer-array>     := SIZE (PTR-ID? <serializable>){SIZE}
@@ -77,6 +75,7 @@ int main()
 <struct>            := [--> call custom function] <serializable> *
 <primitive-array>   := SIZE <primitive>{SIZE}
 <primitive>         := arithmetic# | enum#
+VF                  := FLAGS-and-version
 ```
 
 save-load-data  --> save-load if save-load-construct is available otherwise try to empty-construct and do serialize

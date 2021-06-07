@@ -104,6 +104,18 @@ namespace test_types
 		template<class Ar> void serialize(Ar& ar, unsigned version) { ar | a; }
 	};
 
+	struct DB { int x; };
+	template<class Ar> void serialize(Ar& ar, DB& o) { ar | o.x; }
+
+	struct DBM { int x; template<class Ar> void serialize(Ar& ar) { ar | x; } };
+
+	struct DBSL { int x; };
+	template<class Ar> void serialize_load(Ar& ar, DBSL& o) { ar | o.x; }
+	template<class Ar> void serialize_save(Ar& ar, DBSL& o) { ar | o.x; }
+
+	struct DD : DB			{ int y; template<class Ar> void serialize(Ar& ar) { ar | pulmotor::base<DB>(this) | y; } };
+	struct DDM : DBM		{ int y; template<class Ar> void serialize(Ar& ar) { ar | pulmotor::base<DBM>(this) | y; } };
+	struct DDSL : DBSL		{ int y; template<class Ar> void serialize(Ar& ar) { ar | pulmotor::base<DBSL>(this) | y; } };
 } // test_types
 
 namespace detect_serialize
@@ -143,6 +155,12 @@ struct test_type
 	static void check();
 };
 
+}
+
+template<class Ar> void serialize(Ar& ar, detect_serialize::X1& x) { }
+
+namespace detect_serialize {
+
 template<class T, unsigned CHECKS, unsigned Sn, unsigned SLn, unsigned SSn, unsigned LCn, unsigned SCn>
 void test_type<T,CHECKS,Sn,SLn,SSn,LCn,SCn>::check()
 {
@@ -171,11 +189,23 @@ void test_type<T,CHECKS,Sn,SLn,SSn,LCn,SCn>::check()
 	CHECK(access::detect<Ar>::has_save_construct_mem<T>::value == ((CHECKS & SCM) != 0));
 
 	//CHECK(access::detect<Ar>::count_serialize<T>::value == Sn);
-	CHECK(access::detect<Ar>::count_load_construct<T>::value == LCn);
-	CHECK(access::detect<Ar>::count_save_construct<T>::value == SCn);
+	//CHECK(access::detect<Ar>::count_load_construct<T>::value == LCn);
+	//CHECK(access::detect<Ar>::count_save_construct<T>::value == SCn);
 }
 
 } // detect_serialize
+
+
+namespace type_types
+{
+}
+
+TEST_CASE("type util")
+{
+	CHECK( (std::is_same<arg_i<0, int, float, char>::type, int>::value) == true);
+	CHECK( (std::is_same<arg_i<1, int, float, char>::type, float>::value) == true);
+	CHECK( (std::is_same<arg_i<2, int, float, char>::type, char>::value) == true);
+}
 
 TEST_CASE("detect")
 {
@@ -382,6 +412,37 @@ TEST_CASE("value serialize")
 		CHECK( b.a == x.a );
 		CHECK( b.y == x.y );
 
+	}
+
+	SUBCASE("base")
+	{
+		auto s = [&ar](auto& a)
+		{
+			ar | a;
+
+			archive_vector_in i(ar.data);
+			std::remove_reference_t<decltype(a)> x;
+			i | x;
+			CHECK(x.x == a.x);
+			CHECK(x.y == a.y);
+		};
+
+		SUBCASE("1")
+		{
+			DD a{ {1}, 2};
+			s(a);
+		}
+
+		SUBCASE("2")
+		{
+			DDM a{ {1}, 2};
+			s(a);
+		}
+		SUBCASE("3")
+		{
+			DDSL a{ {1}, 2};
+			s(a);
+		}
 	}
 }
 
@@ -707,7 +768,6 @@ TEST_CASE("ptr serialize")
 		CHECK(va.back().x == a.x);
 	}
 
-
 #if 0
 	/*SUBCASE("primitive compile speed test")
 	{
@@ -925,3 +985,4 @@ TEST_CASE("std serialize")
 }
 }
 #endif
+
