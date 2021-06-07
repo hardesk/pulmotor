@@ -117,12 +117,10 @@ namespace pulmotor
 
 	template<class T> struct class_version { static unsigned const value = version_default; };
 
-	template<class T, bool HasMember = false>	struct get_version_impl				: std::integral_constant<unsigned, pulmotor::class_version<T>::value> {};
-	template<class T>							struct get_version_impl<T, true>	: std::integral_constant<unsigned, T::value> {};
+	template<class T, class = void> struct get_version : std::integral_constant<unsigned, class_version<T>::value> {};
+	template<class T>               struct get_version<T, std::void_t< decltype(T::version) > > : std::integral_constant<unsigned, T::version> {};
 
-	template<class T> struct get_version : std::integral_constant<unsigned, get_version_impl<T>::value> {};
-
-#define PULMOTOR_ARCHIVE_VER(T, v) template<> struct ::pulmotor::class_version<T> { enum { value = v }; }
+#define PULMOTOR_VERSION(T, v) template<> struct ::pulmotor::class_version<T> { enum { value = v }; }
 
 	template<class T>
 	struct clean_type

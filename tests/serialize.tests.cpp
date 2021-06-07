@@ -854,6 +854,103 @@ TEST_CASE("load save variants")
 	}
 }
 
+namespace ver_types {
+	struct X { enum { version = 5 }; };
+	struct Y {};
+	struct Z {};
+
+namespace v1 {
+	struct A
+	{
+		int a = -1;
+		template<class Ar> void serialize(Ar& ar) { ar | a; }
+	};
+}
+
+namespace v2 {
+	struct A
+	{
+		int a = -1;
+		int b = -1;
+		template<class Ar> void serialize(Ar& ar, unsigned version) {
+			ar | a;
+			if (version >= 2)
+				ar | b;
+		}
+	};
+}
+
+namespace v3 {
+	struct A
+	{
+		enum { version = 3 };
+
+		int a;
+		int b = -1;
+		int c = -1;
+		template<class Ar> void serialize(Ar& ar, unsigned version) {
+			ar | a;
+			if (version >= 2)
+				ar | b;
+			if (version >= 3)
+				ar | c;
+		}
+	};
+}
+}
+
+PULMOTOR_VERSION(ver_types::Z, 33);
+
+template<> struct pulmotor::class_version<ver_types::v2::A> { static constexpr unsigned value = 2; };
+
+TEST_CASE("version checks")
+{
+	SUBCASE("direct version check") {
+		CHECK(pulmotor::get_version<ver_types::X>::value == 5);
+		CHECK(pulmotor::get_version<ver_types::Y>::value == pulmotor::version_default);
+		CHECK(pulmotor::get_version<ver_types::Z>::value == 33);
+	}
+
+	archive_vector_out ar;
+
+	SUBCASE("") {
+		using namespace ver_types;
+
+		v1::A a1{0x11};
+		v2::A a2{0x21, 0x22};
+		v3::A a3{0x31, 0x32, 0x33};
+
+		ar | a1
+		   | a1 | a2
+		   | a1 | a2 | a3;
+
+		archive_vector_in i(ar.data);
+		v1::A x1;
+		v2::A x21, x22;
+		v3::A x31, x32, x33;
+		i | x1
+		  | x21 | x22
+		  | x31 | x32 | x33;
+
+		CHECK(x1.a == a1.a);
+
+		CHECK(x21.a == a1.a);
+		CHECK(x21.b == -1);
+		CHECK(x22.a == a2.a);
+		CHECK(x22.b == a2.b);
+
+		CHECK(x31.a == a1.a);
+		CHECK(x31.b == -1);
+		CHECK(x31.c == -1);
+		CHECK(x32.a == a2.a);
+		CHECK(x32.b == a2.b);
+		CHECK(x32.c == -1);
+		CHECK(x33.a == a3.a);
+		CHECK(x33.b == a3.b);
+		CHECK(x33.c == a3.c);
+	}
+}
+
 #if 0
 /*
 namespace pulmotor

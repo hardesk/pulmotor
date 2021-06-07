@@ -25,7 +25,7 @@ struct Y
     X* px {nullptr};
     ~Y() { delete px; }
 
-    void init() { pa = new A(); }
+    void init(int a) { pa = new A(a); }
 
     template<class Ar> void serialize(Ar& ar, unsigned version) { ar | px; }
 };
