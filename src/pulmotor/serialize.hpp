@@ -198,6 +198,9 @@ struct access
 	};
 };
 
+template<class Ar, class Tb>
+struct wants_construct : access::wants_construct<Ar, Tb> {};
+
 template<class T>
 struct version { static constexpr unsigned value = 0; };
 

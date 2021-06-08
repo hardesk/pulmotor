@@ -2,8 +2,6 @@
 #include <doctest.h>
 #include <pulmotor/serialize.hpp>
 
-using namespace pulmotor;
-
 std::vector<char> operator"" _v(char const* s, size_t l) { return std::vector<char>(s, s + l); }
 
 namespace std {
@@ -26,8 +24,14 @@ doctest::String toString(std::vector<T, A> const& v) {
 				s += std::to_string(*v[i]);
 			} else if constexpr(std::is_arithmetic<T>::value) {
 				s += std::to_string(v[i]);
-			} else
-				s += '?';
+			} else {
+				if constexpr(std::is_pointer<T>::value) {
+					s += '&';
+					s += toString(*v[i]).c_str();
+				} else
+					s += toString(v[i]).c_str();
+				//s += '?';
+			}
 			if (i != v.size() - 1)
 				s += ", ";
 		}
@@ -164,6 +168,7 @@ namespace detect_serialize {
 template<class T, unsigned CHECKS, unsigned Sn, unsigned SLn, unsigned SSn, unsigned LCn, unsigned SCn>
 void test_type<T,CHECKS,Sn,SLn,SSn,LCn,SCn>::check()
 {
+	using namespace pulmotor;
 	using Ar = pulmotor::archive;
 
 	auto f = [](auto&&...) {};
@@ -196,15 +201,11 @@ void test_type<T,CHECKS,Sn,SLn,SSn,LCn,SCn>::check()
 } // detect_serialize
 
 
-namespace type_types
-{
-}
-
 TEST_CASE("type util")
 {
-	CHECK( (std::is_same<arg_i<0, int, float, char>::type, int>::value) == true);
-	CHECK( (std::is_same<arg_i<1, int, float, char>::type, float>::value) == true);
-	CHECK( (std::is_same<arg_i<2, int, float, char>::type, char>::value) == true);
+	CHECK( (std::is_same<pulmotor::arg_i<0, int, float, char>::type, int>::value) == true);
+	CHECK( (std::is_same<pulmotor::arg_i<1, int, float, char>::type, float>::value) == true);
+	CHECK( (std::is_same<pulmotor::arg_i<2, int, float, char>::type, char>::value) == true);
 }
 
 TEST_CASE("detect")
@@ -282,7 +283,7 @@ TEST_CASE("value serialize")
 		u32 x32;
 		u64 x64;
 
-		pulmotor::archive_vector_out ar;
+		archive_vector_out ar;
 
 		SUBCASE("8") {
 			ar | a8 | a16 | a32 | a64;
@@ -457,7 +458,8 @@ namespace enum_types
 TEST_CASE("enum serialize")
 {
 	using namespace enum_types;
-	archive_vector_out ar;
+	using namespace pulmotor;
+	pulmotor::archive_vector_out ar;
 
 	A a{A1};
 	S s{S0};
@@ -493,7 +495,10 @@ namespace ptr_types
 			ar | xx;
 			c(xx);
 		}
+		bool operator==(A const&) const = default;
 	};
+
+	doctest::String toString(A const& a) { return ("{" + std::to_string(a.x) + "}").c_str(); }
 
 	struct P {
 		std::aligned_storage<sizeof(A)>::type a[1];
@@ -504,7 +509,7 @@ namespace ptr_types
 		template<class Ar> void serialize(Ar& ar, unsigned version) {
 			if constexpr(Ar::is_reading)
 				((A*)a)->~A();
-			ar | place<A>(a);
+			ar | pulmotor::place<A>(a);
 		}
 		A& getA() { return *(A*)a; }
 	};
@@ -525,7 +530,7 @@ namespace ptr_types
 
 		template<class Ar> void serialize(Ar& ar, unsigned version) {
 			if constexpr(Ar::is_reading) at::destroy(xa, px);
-			ar | alloc(px, [this]() { return at::allocate(xa, 1); } );
+			ar | pulmotor::alloc(px, [this]() { return at::allocate(xa, 1); } );
 		}
 	};
 
@@ -540,7 +545,7 @@ namespace ptr_types
 		~Zb() { at::destroy(xa, px); }
 
 		template<class Ar> void serialize(Ar& ar, unsigned version) {
-			ar | alloc(px, [this]() { return at::allocate(xa, 1); }, [this](A* p) { at::destroy(xa, p); } );
+			ar | pulmotor::alloc(px, [this]() { return at::allocate(xa, 1); }, [this](A* p) { at::destroy(xa, p); } );
 		}
 	};
 
@@ -548,7 +553,9 @@ namespace ptr_types
 	{
 		int x;
 		template<class Ar> void serialize(Ar& ar) { ar | x; }
+		bool operator==(X const&) const = default;
 	};
+	doctest::String toString(X const& x) { return ("{" + std::to_string(x.x) + "}").c_str(); }
 
 	struct Y
 	{
@@ -563,7 +570,8 @@ namespace ptr_types
 TEST_CASE("ptr serialize")
 {
 	using namespace ptr_types;
-	archive_vector_out ar;
+	using namespace pulmotor;
+	pulmotor::archive_vector_out ar;
 
 	SUBCASE("serialize nullptr")
 	{
@@ -816,7 +824,8 @@ namespace loadsave_types
 TEST_CASE("load save variants")
 {
 	using namespace loadsave_types;
-	archive_vector_out ar;
+	using namespace pulmotor;
+	pulmotor::archive_vector_out ar;
 
 	auto p = [&ar](auto& x0, auto& x1, auto& z0, auto& z1)
 	{
@@ -911,7 +920,7 @@ TEST_CASE("version checks")
 		CHECK(pulmotor::get_version<ver_types::Z>::value == 33);
 	}
 
-	archive_vector_out ar;
+	pulmotor::archive_vector_out ar;
 
 	SUBCASE("") {
 		using namespace ver_types;
@@ -924,7 +933,7 @@ TEST_CASE("version checks")
 		   | a1 | a2
 		   | a1 | a2 | a3;
 
-		archive_vector_in i(ar.data);
+		pulmotor::archive_vector_in i(ar.data);
 		v1::A x1;
 		v2::A x21, x22;
 		v3::A x31, x32, x33;
@@ -951,135 +960,90 @@ TEST_CASE("version checks")
 	}
 }
 
-#if 0
-/*
-namespace pulmotor
-{
-
-struct XX {
-	XX(int aa, int bb) : a(aa), b(bb) {}
-	int a, b;
-	bool operator==(XX const&) const = default;
-};
-
-doctest::String toString(XX const& xx) {
-	std::string s;
-	s += '{' + std::to_string(xx.a) + ',' + std::to_string(xx.b) + '}';
-	return s.c_str();
-}
-
-template<class A>
-void save_construct(A& ar, XX const& x, unsigned version)
-{
-	ar | x.a | x.b;
-}
-
-template<class A, class F>
-void load_construct(A& ar, pulmotor::ctor<XX, F> const& cc, unsigned version)
-{
-	int aa, bb;
-	ar | aa | bb;
-	cc(aa, bb);
-}
-
-static_assert(pulmotor::access::detect<pulmotor::archive>::template has_load_construct<XX>::value == true, "detection is failing");
-static_assert(pulmotor::access::detect<pulmotor::archive>::template has_save_construct<XX>::value == true, "detection is failing");
-
-template<class A, class T, class Al>
-void serialize(A& ar, std::vector<T, Al>& v)
-{
-	if constexpr(A::is_reading)
-	{
-		v.clear();
-		u32 sz = 0;
-		ar.read_basic_aligned(sz);
-
-		if constexpr(pulmotor::access::wants_construct<T, A>::value)
-		{
-			v.clear();
-			v.reserve(sz);
-			for (size_t i=0; i<sz; ++i)
-				ar | pulmotor::construct<T>( [&v](auto&&... args) { v.emplace_back(args...); });
-				//ar | pulmotor::construct<XX>( [&v](int a, int b) { v.emplace_back(a, b); });
-		}
-		else
-		{
-			v.resize(sz);
-			for (size_t i=0; i<sz; ++i)
-				ar | v[i];
-		}
-	}
-	else
-	{
-		u32 sz = v.size();
-		ar.align_stream(sizeof sz);
-		ar.write_basic((u32)sz);
-		for (size_t i=0; i<sz; ++i)
-				ar | v[i];
-	}
-}
-
-TEST_CASE("std serialize")
+#include <pulmotor/std/vector.hpp>
+TEST_CASE("vector")
 {
 	using namespace ptr_types;
+	using namespace pulmotor;
+
 	archive_vector_out ar;
 
-	SUBCASE("vector (int)")
+	SUBCASE("empty")
 	{
-		std::vector<int> v{10,20,30,40,50}, vx;
+		std::vector<A> v;
 		ar | v;
 
+		std::vector<A> x;
 		archive_vector_in i(ar.data);
-		i | vx;
-
-		CHECK(v == vx);
+		i | x;
+		CHECK(x.empty());
 	}
 
-	SUBCASE("vector (int*)")
+	SUBCASE("int")
 	{
-		std::vector<int*> v{new int(10), new int(20)}, vx;
+		std::vector<int> v{10, 20, 30, 40};
 		ar | v;
 
 		archive_vector_in i(ar.data);
-		i | vx;
+		std::vector<int> x;
+		i | x;
 
-		CHECK(v != vx);
-		CHECK(*v[0] == *vx[0]);
-		CHECK(*v[1] == *vx[1]);
-		for(auto x : v) delete x;
-		for(auto x : vx) delete x;
+		CHECK(x.size() == v.size());
+		CHECK(x == v);
 	}
 
-	/*
-	SUBCASE("vector (XX)")
+	SUBCASE("int ptr")
 	{
-		std::vector<XX> v{XX(10, 20), XX(101, 1020)}, vx;
+		std::vector<int*> v{new int(10), new int(20)};
 		ar | v;
 
 		archive_vector_in i(ar.data);
-		i | vx;
+		std::vector<int*> x;
+		i | x;
 
-		CHECK(v != vx);
-		CHECK(v[0] == vx[0]);
-		CHECK(v[1] == vx[1]);
+		CHECK(x != v);
+		for(auto z : v) delete z;
+		for(auto z : x) delete z;
 	}
 
-	SUBCASE("vector (XX*)")
+	SUBCASE("struct")
 	{
-		std::vector<XX*> v{new XX(10, 20), new XX(101, 1020)}, vx;
+		std::vector<X> v{X{10}, X{20}, X{30}, X{40}};
 		ar | v;
 
 		archive_vector_in i(ar.data);
-		i | vx;
+		std::vector<X> x;
+		i | x;
 
-		CHECK(v != vx);
-		CHECK(*v[0] == *vx[0]);
-		CHECK(*v[1] == *vx[1]);
+		CHECK(x.size() == v.size());
+		CHECK(x == v);
+	}
 
-		for(auto x : v) delete x;
-		for(auto x : vx) delete x;
-	}*/
+	SUBCASE("struct ctor")
+	{
+		std::vector<A> v{A{10}, A{20}, A{30}, A{40}};
+		ar | v;
+
+		archive_vector_in i(ar.data);
+		std::vector<A> x;
+		i | x;
+
+		CHECK(x.size() == v.size());
+		CHECK(x == v);
+	}
+
+	SUBCASE("struct ptr ctor")
+	{
+		std::vector<A*> v{new A{15}, new A{25}};
+		ar | v;
+
+		archive_vector_in i(ar.data);
+		std::vector<A*> x;
+		i | x;
+
+		CHECK(x.size() == v.size());
+		CHECK((std::equal(x.begin(), x.end(), v.begin(), v.end(), [](auto a, auto b) { return *a == *b; })) == true);
+		for(auto z : v) delete z;
+		for(auto z : x) delete z;
+	}
 }
-}
-#endif
-
