@@ -158,6 +158,8 @@ struct access
 					serialize_load(ar, o);
 				else if constexpr(detect<Ar>::template has_serialize_load_version<bare>::value)
 					serialize_load(ar, o, version);
+				else
+					static_assert(!std::is_same<T, T>::value, "serialize_load (or serialize) function for T could not be found");
 			} else if constexpr(Ar::is_writing) {
 				if constexpr(detect<Ar>::template has_serialize_save_mem<bare>::value)
 					o.serialize_save(ar);
@@ -167,7 +169,10 @@ struct access
 					serialize_save(ar, o);
 				else if constexpr(detect<Ar>::template has_serialize_save_version<bare>::value)
 					serialize_save(ar, o, version);
-			}
+				else
+					static_assert(!std::is_same<T, T>::value, "serialize_save (or serialize) function for T could not be found");
+			} else
+				static_assert(!std::is_same<T, T>::value, "serialize function for T could not be found");
 		}
 
 		template<class Ar, class F, class D>
@@ -287,6 +292,7 @@ template<class T, class C, class D>	struct is_construct_pure<ctor_pure<T, C, D>>
 template<class T>
 struct array_ref
 {
+	using type = T;
 	T* data;
 	size_t size;
 };
@@ -297,13 +303,26 @@ template<class T>			struct is_array_ref<array_ref<T>> : std::true_type {};
 template<class T>
 inline array_ref<T>
 array(T const* p, size_t s)
-{ return array_ref<T>(const_cast<T*>(p), s); }
+{ return array_ref<T>{(T*)p, s}; }
+
+template<class S, class Q>
+struct vu_t
+{
+	using quantity_type = Q;
+	using store_type = S;
+	Q* q;
+};
+template<class S, class Q>
+vu_t<S, Q> vu(Q& q) { return vu_t<S, Q>{&q}; }
+
+template<class T = void>	struct is_vu				: std::false_type {};
+template<class S, class Q>	struct is_vu<vu_t<S, Q>>	: std::true_type {};
 
 template<class Tb>
 struct logic
 {
 	template<class Ar>
-	static void s_pointer(Ar& ar, Tb* p, object_version version, std::true_type) // wants-load-save = true
+	static void s_pointer(Ar& ar, Tb* p, object_meta version, std::true_type) // wants-load-save = true
 	{
 		if constexpr(Ar::is_reading) {
 			if (!version.is_nullptr()) {
@@ -317,7 +336,7 @@ struct logic
 	}
 
 	template<class Ar>
-	static void s_pointer(Ar& ar, Tb* p, object_version version, std::false_type) // wants-load-save = false
+	static void s_pointer(Ar& ar, Tb* p, object_meta version, std::false_type) // wants-load-save = false
 	{
 		if (p)
 			logic<Tb>::s_serializable(ar, *p);
@@ -367,7 +386,7 @@ struct logic
 			auto new_aligned = []() { return new typename std::aligned_storage<sizeof(Tp)>::type; };
 			auto delete_obj = [](Tp* p) { delete p; };
 
-			object_version v = logic<Tp>::s_version(ar, o);
+			object_meta v = logic<Tp>::s_version(ar, o, true);
 			if constexpr(Ar::is_reading)
 				logic<Tp>::template prepare_area<wc::value>(&o, !v.is_nullptr(), new_aligned, delete_obj);
 			logic<Tp>::s_pointer(ar, o, v, wc());
@@ -378,7 +397,7 @@ struct logic
 			auto alloc_f = [&]() { return o.f(); };
 			auto dealloc_f = [&](Tp* p) { o.de(p); };
 
-			object_version v = logic<Tp>::s_version(ar, *o.pp);
+			object_meta v = logic<Tp>::s_version(ar, *o.pp, true);
 			if constexpr(Ar::is_reading)
 				logic<Tp>::template prepare_area<wc::value>(o.pp, !v.is_nullptr(), alloc_f, dealloc_f);
 			logic<Tp>::s_pointer(ar, *o.pp, v, wc());
@@ -386,7 +405,7 @@ struct logic
 			using Tp = typename Tb::type;
 			using wc = typename access::wants_construct<Ar, Tp>::type;
 
-			object_version v = logic<Tp>::s_version(ar, o.p);
+			object_meta v = logic<Tp>::s_version(ar, o.p, true);
 			// TODO: pass a bool with "placement_t" that specifies if the are holds an object
 			// if constexpr(Ar::is_reading)
 			// logic<Tp>::template prepare_area<wc::value>(o.p, Ar::is_reading && !v.is_nullptr(, [o.p]() { return p; }, [](auto){} );
@@ -395,7 +414,7 @@ struct logic
 		} else if constexpr(is_construct<Tb>::value || is_construct_pure<Tb>::value) {
 			using To = typename Tb::type;
 
-			object_version version;
+			object_meta version;
 
 			if constexpr(Ar::is_reading) {
 				version = ar.process_prefix();
@@ -416,7 +435,10 @@ struct logic
 					access::call<To>::do_load_construct(ar, ctor<To, decltype(cc)>(nullptr, cc), version);
 				}
 			} else if constexpr(Ar::is_writing) {
-				version = object_version { get_version<Tb>::value };
+				version = object_meta { get_meta<Tb>::value };
+
+				// when version is 'no-version', we still must write flags (and thus version).  in such case set it to 0.
+				if (version.is_no_version()) version.set_version(version_default);
 				if (!o.ptr)
 					throw std::invalid_argument("bad construct when writing stream");
 				ar.template write_object_prefix<To>(*o.ptr, version);
@@ -430,9 +452,10 @@ struct logic
 				if constexpr(std::is_arithmetic<Ta>::value || std::is_enum<Ta>::value)
 					logic<Tb>::s_primitive_array(ar, o);
 				else if constexpr(std::is_pointer<Ta>::value) {
-					static_assert(!std::is_same<Ta, Ta>::value, "array of pointers is not supported yet");
+					static_assert(!std::is_same<Ta, Ta>::value, "array of pointers is not supported");
 				} else {
-					object_version v = logic<Tb>::s_version(ar, &o); // <<------- what to pass here?
+					using Ta = typename std::remove_all_extents<Tb>::type;
+					object_meta v = logic<Ta>::s_version(ar, o, false);
 					logic<Tb>::s_struct_array(ar, o, v);
 				}
 			} else {
@@ -440,34 +463,65 @@ struct logic
 				for (size_t i=0; i<std::extent<Tb>::value; ++i)
 					logic<Ta>::s_serializable( ar, o[i] );
 			}
+		} else if constexpr(is_array_ref<Tb>::value) {
+			using Ta = typename Tb::type;
+			if constexpr(std::is_arithmetic<Ta>::value || std::is_enum<Ta>::value)
+				logic<Ta>::s_primitive_array(ar, o.data, o.size);
+			else if constexpr(std::is_pointer<Ta>::value) {
+				static_assert(!std::is_same<Ta, Ta>::value, "array of pointers is not supported");
+			} else {
+				object_meta v = logic<Ta>::s_version(ar, o.data, false);
+				logic<Ta>::s_struct_array(ar, o.data, o.size, v);
+			}
 		} else if constexpr(is_base<Tb>::value) {
 			using Tp = typename Tb::type;
-			object_version v = logic<Tp>::s_version(ar, o.p);
+			object_meta v = logic<Tp>::s_version(ar, o.p, false);
 			logic<Tp>::s_struct(ar, *o.p, v);
+		} else if constexpr(is_vu<Tb>::value) {
+			using Ts = typename Tb::store_type;
+			logic<Ts>::s_vu(ar, *o.q);
 		} else if constexpr(std::is_arithmetic<Tb>::value || std::is_enum<Tb>::value) {
 			s_primitive(ar, o);
 		} else if constexpr(std::is_class<Tb>::value || std::is_union<Tb>::value) {
-			object_version v = s_version(ar, &o);
+			object_meta v = s_version(ar, &o, false);
 			s_struct(ar, o, v);
 		}
 	}
 
-	template<class Ar>
-	static object_version s_version(Ar& ar, Tb* o)
+	template<class Ar, class Tq>
+	static void s_vu(Ar& ar, Tq& q)
 	{
-		object_version v;
-		if constexpr(Ar::is_reading)
-			v = ar.process_prefix();
-		else {
-			v = object_version { get_version<Tb>::value };
-			if (v != no_version)
+		if constexpr(Ar::is_reading) {
+			size_t u;
+			int state=0;
+			Tb v;
+			do {
+				ar.read_basic(v);
+			} while (util::duleb(u, state, v));
+			q = u;
+		} else if constexpr(Ar::is_writing) {
+			Tb u[util::euleb_count<Tb, Tq>::value];
+			size_t c = util::euleb(q, u);
+			ar.write_data(u, c*sizeof(Tb));
+		}
+	}
+
+	template<class Ar>
+	static object_meta s_version(Ar& ar, Tb* o, bool always_write_verflags)
+	{
+		object_meta v = object_meta { get_meta<Tb>::value };
+		if constexpr(Ar::is_reading) {
+			if (!v.is_no_version() || always_write_verflags)
+				v = ar.process_prefix();
+		} else {
+			if (!v.is_no_version() || always_write_verflags)
 				ar.template write_object_prefix<Tb>(o, v);
 		}
 		return v;
 	}
 
 	template<class Ar>
-	static void s_struct(Ar& ar, Tb& o, object_version v) {
+	static void s_struct(Ar& ar, Tb& o, object_meta v) {
 		if constexpr(Ar::is_reading) {
 			static_assert(access::wants_construct<Ar, Tb>::value == false, "a value that wants construct should not be serializing here");
 			access::call<Tb>::do_serialize(ar, const_cast<Tb&>(o), v);
@@ -480,7 +534,7 @@ struct logic
 	}
 
 	template<class Ar>
-	static void s_struct_array(Ar& ar, Tb& o, object_version v) {
+	static void s_struct_array(Ar& ar, Tb& o, object_meta v) {
 		constexpr size_t N = std::extent<Tb>::value;
 		using Ta = typename std::remove_all_extents<Tb>::type;
 		for (size_t i=0; i<N; ++i) {
@@ -489,24 +543,44 @@ struct logic
 	}
 
 	template<class Ar>
+	static void s_struct_array(Ar& ar, Tb* o, size_t size, object_meta v) {
+		//ar | size;
+		for (size_t i=0; i<size; ++i) {
+			logic<Tb>::s_struct(ar, o[i], v);
+		}
+	}
+
+	template<class Ar>
 	static void s_primitive_array(Ar& ar, Tb& o) {
 		constexpr size_t N = std::extent<Tb>::value;
 		using To = typename std::remove_all_extents<Tb>::type;
-		ar.align_stream(sizeof(Tb));
-		for (size_t i=0; i<N; ++i) {
-			if constexpr(Ar::is_reading) {
-				ar.read_data(o, N * sizeof(To));
-			} else {
-				ar.write_data(o, N * sizeof(To));
-			}
+		if (sizeof(Tb) > 1)
+			ar.align_stream(sizeof(Tb));
+		if constexpr(Ar::is_reading) {
+			ar.read_data(o, N * sizeof(To));
+		} else {
+			ar.write_data(o, N * sizeof(To));
 		}
+	}
+
+	template<class Ar>
+	static void s_primitive_array(Ar& ar, Tb* o, size_t size) {
+		if (sizeof(Tb) > 1)
+			ar.align_stream(sizeof(Tb));
+		//ar | as<u32>(size);
+		//ar | size;
+		if constexpr(Ar::is_reading)
+			ar.read_data(o, size * sizeof(Tb));
+		else
+			ar.write_data(o, size * sizeof(Tb));
 	}
 
 	//using Tu = std::underlying_type_t<Tb>;
 	//logic<Tu>::s_primitive(ar, (Tu&)o);
 	template<class Ar>
 	static void s_primitive(Ar& ar, Tb& o) {
-		ar.align_stream(sizeof(Tb));
+		if (sizeof(Tb) > 1)
+			ar.align_stream(sizeof(Tb));
 		if constexpr(Ar::is_reading) {
 			ar.read_basic(const_cast<Tb&> (o));
 		} else if constexpr(Ar::is_writing) {

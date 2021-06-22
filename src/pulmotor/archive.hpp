@@ -102,9 +102,10 @@ struct archive_write_version_util
 		self().write_data(&o, sizeof o);
 	}
 
+	// TODO: assert obj is a "proper" type, for example, not an array
 	template<class T>
 	void write_object_prefix(T const* obj, unsigned version) {
-		assert(version != no_version);
+		assert(version != (no_version & ver_mask));
 		u32 vf = version;
 
 		if (obj == nullptr)
@@ -175,16 +176,18 @@ private:
 	unsigned m_flags;
 };
 
-struct object_version
+struct object_meta
 {
-	unsigned v;
+	unsigned vf;
 
-	object_version& operator=(object_version const&) = default;
+	object_meta& operator=(object_meta const&) = default;
 
-	unsigned version() const { return v & ver_flag_mask; }
-	unsigned is_nullptr() const { return v & ver_flag_null_ptr; }
+	unsigned version() const { return vf & ver_mask; }
+	unsigned is_nullptr() const { return vf & ver_flag_null_ptr; }
+	bool is_no_version() const { return (vf & ver_flag_no_version) != 0; }
+	void set_version(unsigned ver) { vf = (vf&~ver_mask) | (ver&ver_mask); }
 
-	operator unsigned() const { return v & ver_flag_mask; }
+	operator unsigned() const { return vf & ver_mask; }
 };
 
 template<class Derived>
@@ -205,7 +208,7 @@ struct archive_read_util
 			self().advance(util::align(offset, al) - offset);
 	}
 
-	object_version process_prefix() {
+	object_meta process_prefix() {
 
 		u32 version=0, garbage=0, debug_string_len=0;
 		self().read_basic(version);
@@ -220,7 +223,7 @@ struct archive_read_util
 			}
 		}
 
-		return object_version{version};
+		return object_meta{version};
 	}
 };
 
@@ -519,7 +522,7 @@ public:
 		if (codeVer != pulmotor::version_dont_track)
 			print_name (("__version '" + name + "'").c_str(), ver, off);
 		else
-			print_name (("not tracking version for '" + name + "'").c_str(), (int)get_version<T>::value, off);
+			print_name (("not tracking version for '" + name + "'").c_str(), (int)get_meta<T>::value, off);
 	}
 
 	template<class T>
@@ -655,7 +658,7 @@ struct archive_vector_in
 	}
 
 	void advance(size_t s) { m_offset += s; }
-	void read_data(void* src, size_t size) { memcpy(src, data.data() + m_offset, size); }
+	void read_data(void* src, size_t size) { memcpy(src, data.data() + m_offset, size); m_offset += size; }
 
 	std::string str() const { return std::string(data.data(), data.size()); }
 };

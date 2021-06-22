@@ -65,6 +65,49 @@ std::string abi_demangle(char const* mangled)
 	return ret;
 }
 
+// encode: if don't fit into container (eg. 31bit), set hibit and store the rest as value (eg. 31bit)
+template<class T>
+inline size_t euleb_impl(size_t s, T* o) {
+
+	static_assert(std::is_unsigned<T>::value, "T must be unsigned");
+
+	using nl = std::numeric_limits<T>;
+
+	unsigned i = 0;
+	constexpr unsigned vbits = nl::digits - 1;
+	constexpr T hmask = 1U << vbits;
+	do {
+		o[i] = T(s);
+		if ((s >>= vbits))
+			o[i] |= hmask;
+		++i;
+	} while(s);
+
+	return i;
+}
+
+// decode: if hibit set, set it to 0 and expect another word
+template<class T>
+inline bool duleb_impl(size_t& s, int& state, T v) {
+
+	static_assert(std::is_unsigned<T>::value, "T must be unsigned");
+
+	using nl = std::numeric_limits<T>;
+	constexpr unsigned vbits = nl::digits - 1;
+	constexpr T hmask = 1U << vbits;
+
+	size_t ss = v & ~hmask;
+	s |= ss << (state++ * vbits);
+	return (v & hmask) != 0;
+}
+
+size_t euleb(size_t s, u8* o) { return euleb_impl(s, o); }
+size_t euleb(size_t s, u16* o) { return euleb_impl(s, o); }
+size_t euleb(size_t s, u32* o) { return euleb_impl(s, o); }
+bool duleb(size_t& s, int& state, u8 v) { return duleb_impl(s, state, v); }
+bool duleb(size_t& s, int& state, u16 v) { return duleb_impl(s, state, v); }
+bool duleb(size_t& s, int& state, u32 v) { return duleb_impl(s, state, v); }
+
 std::string dm (char const* a)
 {
 #if defined(__GNUC__) && 0
@@ -113,5 +156,7 @@ size_t write_file (path_char const* name, u8 const* ptr, size_t size)
 	s.write(ptr, size, ec);
 	return size;
 }
+
+
 
 }} // pulmotor::util

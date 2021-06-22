@@ -3,7 +3,7 @@
 #include <pulmotor/archive.hpp>
 
 using namespace pulmotor;
-romu3 r3;
+static romu3 r3;
 
 struct A
 {
@@ -84,7 +84,7 @@ TEST_CASE("pulmotor archive")
 			ar.write_object_prefix(&a, 1337);
 
 			size_t offset = 0;
-			CHECK((ar_check<u32>::pull(ar.data, offset) & ver_flag_mask) == 1337);
+			CHECK((ar_check<u32>::pull(ar.data, offset) & ver_mask) == 1337);
 			CHECK(ar_check<u32>::pull_str(ar.data, offset) == typeid(A).name());
 		}
 
@@ -96,7 +96,7 @@ TEST_CASE("pulmotor archive")
 			CHECK(ar.offset() == al);
 
 			size_t offset = 0;
-			CHECK((ar_check<u32>::pull(ar.data, offset) & ver_flag_mask) == 1337);
+			CHECK((ar_check<u32>::pull(ar.data, offset) & ver_mask) == 1337);
 			size_t garbage = ar_check<u32>::pull(ar.data, offset);
 			CHECK( (offset + garbage) == al);
 		}
@@ -108,7 +108,7 @@ TEST_CASE("pulmotor archive")
 			CHECK(ar.offset() == al);
 
 			size_t offset = 0;
-			CHECK((ar_check<u32>::pull(ar.data, offset) & ver_flag_mask) == 1337);
+			CHECK((ar_check<u32>::pull(ar.data, offset) & ver_mask) == 1337);
 			size_t garbage = ar_check<u32>::pull(ar.data, offset);
 			CHECK(offset + garbage == al);
 			CHECK(ar_check<u32>::pull_str(ar.data, offset) == typeid(A).name());
@@ -120,3 +120,84 @@ TEST_CASE("pulmotor archive version")
 {
 }
 
+TEST_CASE("size packing")
+{
+	auto TC=[](int N, auto* pd) {
+		int r=0;
+		size_t s = 0;
+		int state =0, i=0;
+
+		while(i<12) {
+			bool cont = util::duleb(s, state, pd[i++]);
+			//CHECK(cont == (i<N));
+			if (!cont) break;
+		}
+		CHECK(i==N);
+		return s;
+	};
+
+	SUBCASE("u8") {
+		u8 b[12];
+		CHECK(util::euleb(0, b) == 1);
+		CHECK(b[0]==0);
+		CHECK(TC(1, b) == 0);
+
+		CHECK(util::euleb(1, b) == 1);
+		CHECK(b[0]==1);
+		CHECK(TC(1, b) == 1);
+
+		CHECK(util::euleb(128, b) == 2);
+		CHECK(b[0]==0x80);
+		CHECK(b[1]==0x01);
+		CHECK(TC(2, b) == 128);
+
+		// 7fff ->  0111 1111    1111 1111
+		//		    0111 1111 1  M111 1111
+		//		   01 M111 1111  M111 1111
+		//		M..01 M111 1111  M111 1111
+		CHECK(util::euleb(32767, b) == 3);
+		CHECK(b[0]==0xff);
+		CHECK(b[1]==0xff);
+		CHECK(b[2]==0x01);
+		CHECK(TC(3, b) == 32767);
+	}
+
+	SUBCASE("u16") {
+		u16 b[12];
+
+		CHECK(util::euleb(1, b) == 1);
+		CHECK(TC(1, b) == 1);
+
+		CHECK(util::euleb(0x7fff, b) == 1);
+		CHECK(b[0]==0x7fff);
+		CHECK(TC(1, b) == 0x7fff);
+
+		CHECK(util::euleb(0x8000, b) == 2);
+		CHECK(b[0]==0x8000);
+		CHECK(b[1]==0x0001);
+		CHECK(TC(2, b) == 0x8000);
+
+		CHECK(util::euleb(0x82345678, b) == 3);
+		CHECK(TC(3, b) == 0x82345678);
+	}
+
+	SUBCASE("u32") {
+		u32 b[4];
+
+		CHECK(util::euleb(1, b) == 1);
+		CHECK(TC(1, b) == 1);
+
+		CHECK(util::euleb(0x7fff'ffff, b) == 1);
+		CHECK(b[0]==0x7fff'ffff);
+		CHECK(TC(1, b) == 0x7fff'ffff);
+
+		CHECK(util::euleb(0x8000'ffff, b) == 2);
+		CHECK(b[0]==0x8000'ffff);
+		CHECK(b[1]==0x0001);
+		CHECK(TC(2, b) == 0x8000'ffff);
+
+		size_t ss = 0xfedc'ba98'7654'3210u;
+		CHECK(util::euleb(ss, b) == 3);
+		CHECK(TC(3, b) == ss);
+	}
+}

@@ -68,6 +68,7 @@ int main()
                      | ALLOC <pointer>
                      | PTR <pointer>
                      | BASE <struct>
+                     | ARRAY-REF primitive-array | ARRAY-REF struct-array
 
 <pointer>           := PTR-ID? <serializable>
 <pointer-array>     := SIZE (PTR-ID? <serializable>){SIZE}

@@ -72,9 +72,9 @@ namespace pulmotor
 	enum { header_size = 8 };
 	enum : unsigned
 	{
-		version_dont_track = 0xffff'ffffu,
-		no_version = 0xffff'ffffu,
-		version_default = 0u,
+		version_dont_track			= 0xffff'ffffu,
+		no_version					= 0xffff'ffffu, // value that is transformed into ver_flag_no_version
+		version_default				= 0u,
 
 		// object pointer was null when writing
 		ver_flag_null_ptr			= 0x8000'0000u,
@@ -90,8 +90,14 @@ namespace pulmotor
 		// align object on an alignment address specified by archive
 		ver_flag_align_object		= 0x1000'0000u,
 
+		// set if object was serialized using "wants-construct == true"
+		ver_flag_wants_construct	= 0x0100'0000u,
+
+		// class is configured not to store the version into file
+		ver_flag_no_version			= 0x0200'0000u,
+
 		// mask to get only the version part
-		ver_flag_mask				= 0x00ffffffu
+		ver_mask					= 0x00ffffffu
    };
 
 
@@ -115,10 +121,12 @@ namespace pulmotor
 	template<class T, class = void> struct has_version_member : std::false_type {};
 	template<class T>               struct has_version_member<T, std::void_t<char [(std::is_convertible<decltype(T::version), unsigned>::value) ? 1 : -1]> > : std::true_type {};
 
-	template<class T> struct class_version { static unsigned const value = version_default; };
+	template<class T> struct class_version { static unsigned constexpr value = version_default; };
 
-	template<class T, class = void> struct get_version : std::integral_constant<unsigned, class_version<T>::value> {};
-	template<class T>               struct get_version<T, std::void_t< decltype(T::version) > > : std::integral_constant<unsigned, T::version> {};
+	template<class T, class = void> struct get_meta : std::integral_constant<unsigned,
+		(unsigned)class_version<T>::value == (unsigned)no_version ? (unsigned)ver_flag_no_version|0u : (unsigned)class_version<T>::value> {};
+	template<class T>               struct get_meta<T, std::void_t< decltype(T::version) > > : std::integral_constant<unsigned,
+		(unsigned)T::version == (unsigned)no_version ? (unsigned)ver_flag_no_version|0u : (unsigned)T::version> {};
 
 #define PULMOTOR_VERSION(T, v) template<> struct ::pulmotor::class_version<T> { enum { value = v }; }
 
@@ -149,9 +157,14 @@ namespace pulmotor
 
 	struct romu3
 	{
+		typedef uint64_t result_type;
+		constexpr static result_type min() { return 0; }
+		constexpr static result_type max() { return UINT64_MAX; }
+
 		#define PULMOTOR_ROTL(d,lrot) ((d<<(lrot)) | (d>>(8*sizeof(d)-(lrot))))
 		uint64_t xState=0xe2246698a74e50e0ULL, yState=0x178cd4541df4e31cULL, zState=0x704c7122f9cfbd76ULL;
 		void seed(uint64_t a, uint64_t b,uint64_t c) { xState=a; yState=b; zState=c; }
+		void reset() { *this = romu3(); }
 		uint64_t operator() () {
 		   uint64_t xp = xState, yp = yState, zp = zState;
 		   xState = 15241094284759029579u * zp;

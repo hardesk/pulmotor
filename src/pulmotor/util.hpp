@@ -83,6 +83,23 @@ is_pow(T a)
 	return a && !(a & (a-1U));
 }
 
+template<class S, class Q>
+struct euleb_count
+{
+	constexpr static unsigned Sbits = sizeof(S)*8;
+	constexpr static unsigned Qbits = sizeof(Q)*8;
+	static_assert(Sbits < Qbits);
+
+	enum : unsigned { value = (Qbits%Sbits) == 0 ? Qbits/Sbits : Qbits/Sbits+1 };
+};
+
+size_t euleb(size_t s, u8* o);
+size_t euleb(size_t s, u16* o);
+size_t euleb(size_t s, u32* o);
+bool duleb(size_t& s, int& state, u8 v);
+bool duleb(size_t& s, int& state, u16 v);
+bool duleb(size_t& s, int& state, u32 v);
+
 std::string dm (char const*);
 void hexdump (void const* p, int len);
 

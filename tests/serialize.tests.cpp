@@ -1,10 +1,37 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
 #include <pulmotor/serialize.hpp>
+#include <pulmotor/std/utility.hpp>
 
 std::vector<char> operator"" _v(char const* s, size_t l) { return std::vector<char>(s, s + l); }
 
 namespace std {
+
+template<class T>
+std::string toStringValue(T const& a)
+{
+	std::string s;
+	if constexpr(std::is_same<T, std::string>::value) {
+		return a;
+	} else if constexpr(std::is_same<T, char>::value) {
+		s += '\'';
+		if (a < 32) s += '\\' + std::to_string((int)a); else s += a;
+		s += '\'';
+	} else if constexpr(std::is_pointer<T>::value && std::is_arithmetic<typename std::remove_pointer<T>::type>::value) {
+		s += '&';
+		s += std::to_string(*a);
+	} else if constexpr(std::is_arithmetic<T>::value) {
+		s += std::to_string(a);
+	} else {
+		if constexpr(std::is_pointer<T>::value) {
+			s += '&';
+			s += toString(*a).c_str();
+		} else
+			s += toString(a).c_str();
+		//s += '?';
+	}
+	return s;
+}
 
 template<class T, class A>
 doctest::String toString(std::vector<T, A> const& v) {
@@ -15,24 +42,26 @@ doctest::String toString(std::vector<T, A> const& v) {
 			if (i == 24)
 				s += ", ...";
 		} else {
-			if constexpr(std::is_same<T, char>::value) {
-				s += '\'';
-				if (v[i] < 32) s += '\\' + std::to_string((int)v[i]); else s += v[i];
-				s += '\'';
-			} else if constexpr(std::is_pointer<T>::value && std::is_arithmetic<typename std::remove_pointer<T>::type>::value) {
-				s += '&';
-				s += std::to_string(*v[i]);
-			} else if constexpr(std::is_arithmetic<T>::value) {
-				s += std::to_string(v[i]);
-			} else {
-				if constexpr(std::is_pointer<T>::value) {
-					s += '&';
-					s += toString(*v[i]).c_str();
-				} else
-					s += toString(v[i]).c_str();
-				//s += '?';
-			}
+			s += toStringValue(v[i]);
 			if (i != v.size() - 1)
+				s += ", ";
+		}
+	}
+	return s.c_str();
+}
+
+template<class K, class T, class C, class A>
+doctest::String toString(std::map<K, T, C, A> const& m) {
+	std::string s;
+	s.reserve(m.size() * sizeof(T)*7/2 * sizeof(K)*7/2 + 5);
+	size_t i = 0;
+	for(auto it = m.begin(); it != m.end(); ++it, ++i) {
+		if (m.size() > 32 && (i>=24 && i<m.size()-4)) {
+			if (i == 24)
+				s += ", ...";
+		} else {
+			s += '(' + toStringValue(it->first) + ':' + toStringValue(it->second) + ')';
+			if (i != m.size() - 1)
 				s += ", ";
 		}
 	}
@@ -231,6 +260,12 @@ TEST_CASE("detect")
 	test_type<X6, LCM, 0, 0, 0, 1, 0>::check();
 	test_type<X7, SC , 0, 0, 0, 0, 1>::check();
 	test_type<X8, SCM, 0, 0, 0, 0, 1>::check();
+}
+
+TEST_CASE("detect pair")
+{
+	using Ar = pulmotor::archive;
+	CHECK(pulmotor::access::detect<Ar>::has_serialize<std::pair<int, int> >::value == true);
 }
 
 TEST_CASE("value serialize")
@@ -444,6 +479,53 @@ TEST_CASE("value serialize")
 			DDSL a{ {1}, 2};
 			s(a);
 		}
+	}
+
+	SUBCASE("variable unsigned quantity")
+	{
+		size_t a=10, b=255, c=32768, d=4000000;
+		SUBCASE("u8")
+		{
+			// a=32768; while [[ $a -ne 0 ]]; do if [[ $a -gt 127 ]]; then echo $((a & 0x7f|0x80)); else echo $((a & 0x7f)); fi; a=$((a>>7)); done;
+			ar | vu<u8>(a);
+			CHECK(ar.data[0] == a);
+
+			ar | vu<u8>(b);
+			CHECK(ar.data[1] == char(0xff));
+			CHECK(ar.data[2] == char(0x01));
+
+			ar | vu<u8>(c);
+			CHECK(ar.data[3] == char(0x80));
+			CHECK(ar.data[4] == char(0x80));
+			CHECK(ar.data[5] == char(0x02));
+
+			ar | vu<u8>(d);
+			CHECK(ar.data[6] == char(0x80));
+			CHECK(ar.data[7] == char(0x92));
+			CHECK(ar.data[8] == char(0xf4));
+			CHECK(ar.data[9] == char(0x01));
+		}
+
+		SUBCASE("u16")
+		{
+			// a=32768; while [[ $a -ne 0 ]]; do if [[ $a -gt 32767 ]]; then echo $((a & 0x7fff|0x8000)); else echo $((a & 0x7fff)); fi; a=$((a>>15)); done;
+			ar | vu<u16>(b);
+			CHECK(ar.data[0] == char(0xff));
+			CHECK(ar.data[1] == char(0x00));
+
+			ar | vu<u16>(c);
+			CHECK(ar.data[2] == char(0x00));
+			CHECK(ar.data[3] == char(0x80));
+			CHECK(ar.data[4] == char(0x01));
+			CHECK(ar.data[5] == char(0x00));
+
+			ar | vu<u16>(d);
+			CHECK(ar.data[6] == char(0x00));
+			CHECK(ar.data[7] == char(0x89));
+			CHECK(ar.data[8] == char(0x7a));
+			CHECK(ar.data[9] == char(0x00));
+		}
+
 	}
 }
 
@@ -915,9 +997,9 @@ template<> struct pulmotor::class_version<ver_types::v2::A> { static constexpr u
 TEST_CASE("version checks")
 {
 	SUBCASE("direct version check") {
-		CHECK(pulmotor::get_version<ver_types::X>::value == 5);
-		CHECK(pulmotor::get_version<ver_types::Y>::value == pulmotor::version_default);
-		CHECK(pulmotor::get_version<ver_types::Z>::value == 33);
+		CHECK(pulmotor::get_meta<ver_types::X>::value == 5);
+		CHECK(pulmotor::get_meta<ver_types::Y>::value == pulmotor::version_default);
+		CHECK(pulmotor::get_meta<ver_types::Z>::value == 33);
 	}
 
 	pulmotor::archive_vector_out ar;
@@ -1002,6 +1084,8 @@ TEST_CASE("vector")
 		i | x;
 
 		CHECK(x != v);
+		CHECK(v.size() == x.size());
+		CHECK(v.size() == x.size());
 		for(auto z : v) delete z;
 		for(auto z : x) delete z;
 	}
@@ -1047,3 +1131,155 @@ TEST_CASE("vector")
 		for(auto z : x) delete z;
 	}
 }
+
+#include <pulmotor/std/string.hpp>
+static pulmotor::romu3 r3;
+TEST_CASE("string")
+{
+	using namespace pulmotor;
+
+	archive_vector_out ar;
+
+	SUBCASE("empty")
+	{
+		std::string s;
+		ar | s | s | s;
+
+		std::string x, y("hog"), z(128, 'c');
+		archive_vector_in i(ar.data);
+		i | x | y | z;
+		CHECK(x.empty());
+		CHECK(y.empty());
+		CHECK(z.empty());
+	}
+
+	SUBCASE("content")
+	{
+		std::string ss("abcd"), sl("1234567890qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM");
+		ar | ss | sl;
+
+		std::string xs, xl;
+		archive_vector_in i(ar.data);
+		i | xs | xl;
+
+		CHECK(xs == ss);
+		CHECK(xl == sl);
+	}
+
+	SUBCASE("various lengths")
+	{
+		constexpr size_t N=100;
+		std::string sa[N], xa[N];
+		r3.reset();
+		for (int i=0; i<N; ++i)
+			for(int q=0; q<i; ++q)
+				sa[i] += '0' + r3.r(128-38);
+
+		for (int i=0;i<1; ++i)
+		{
+			ar.data.clear();
+			ar | sa;
+
+			archive_vector_in in(ar.data);
+			in | xa;
+
+			CHECK((std::equal(sa, sa + N, xa, xa + N, [](auto a, auto b) { return a == b; })) == true);
+
+			std::shuffle(sa, sa + N, r3);
+		}
+	}
+}
+
+#include <pulmotor/std/map.hpp>
+TEST_CASE("map")
+{
+	using namespace ptr_types;
+	using namespace pulmotor;
+	using namespace std::string_literals;
+
+	archive_vector_out ar;
+
+	SUBCASE("empty")
+	{
+		std::map<int, A> m;
+		ar | m | m;
+
+		std::map<int, A> x, y{ {10, A{11}}};
+		archive_vector_in i(ar.data);
+		i | x | y;
+		CHECK(x.empty());
+		CHECK(y.empty());
+	}
+
+	SUBCASE("int")
+	{
+		std::map<int, int> m{ {10, 1}, {20, 2}, {30, 3} };
+		ar | m;
+
+		archive_vector_in i(ar.data);
+		std::map<int, int> x;
+		i | x;
+
+		CHECK(x.size() == m.size());
+		CHECK(x == m);
+	}
+
+	SUBCASE("int ptr")
+	{
+		std::map<int, int*> m{ {10, new int(1)}, {20, new int(2)} };
+		ar | m;
+
+		archive_vector_in i(ar.data);
+		std::map<int, int*> x;
+		i | x;
+
+		CHECK((std::equal(x.begin(), x.end(), m.begin(), m.end(), [](auto a, auto b) { return a.first == b.first && *a.second == *b.second; })) == true);
+		CHECK(x.size() == m.size());
+		for(auto z : m) delete z.second;
+		for(auto z : x) delete z.second;
+	}
+
+	SUBCASE("struct")
+	{
+		std::map<std::string, X> m{ {"jon", X{10}}, {"susie", X{20}}, {"barnie", X{30}} };
+		ar | m;
+
+		archive_vector_in i(ar.data);
+		std::map<std::string, X> x;
+		i | x;
+
+		CHECK(x.size() == m.size());
+		CHECK(x == m);
+	}
+
+	SUBCASE("struct ctor")
+	{
+		std::map<std::string, A> m{ {"jon"s, A{10}}, {"susie"s, A{20}}, {"barnie"s, A{30}} };
+		ar | m;
+
+		archive_vector_in i(ar.data);
+		std::map<std::string, A> x;
+		i | x;
+
+		CHECK(x.size() == m.size());
+		CHECK(x == m);
+	}
+
+	SUBCASE("struct ptr ctor")
+	{
+		std::map<int, A*> m{ {10, new A{15}}, {30, new A{25}}};
+		ar | m;
+
+		archive_vector_in i(ar.data);
+		std::map<int, A*> x;
+		i | x;
+
+		CHECK(x.size() == m.size());
+		CHECK((std::equal(x.begin(), x.end(), m.begin(), m.end(), [](auto a, auto b) { return a.first == b.first && *a.second == *b.second; })) == true);
+		for(auto z : m) delete z.second;
+		for(auto z : x) delete z.second;
+	}
+}
+
+
+
