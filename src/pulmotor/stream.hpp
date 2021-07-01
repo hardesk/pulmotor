@@ -3,8 +3,6 @@
 
 #include <memory>
 #include <iterator>
-#include <boost/noncopyable.hpp>
-#include <boost/get_pointer.hpp>
 
 #include "pulmotor_config.hpp"
 #include "util.hpp"

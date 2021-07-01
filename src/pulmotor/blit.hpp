@@ -43,6 +43,71 @@
 
 namespace pulmotor {
 
+	template<class T, int N>
+	struct array_address
+	{
+		array_address (T (*p)[N]) : addr ((uintptr_t)p) {}
+		array_address (T const (*p)[N]) : addr ((uintptr_t)p) {}
+
+		uintptr_t	addr;
+	};
+
+	struct blit_section_info
+	{
+		pulmotor::u32 	data_offset;
+		pulmotor::u32	fixup_offset, fixup_count;
+		pulmotor::u32	reserved;
+	};
+
+	namespace util
+	{
+		inline pulmotor::blit_section_info* get_bsi (void* data, bool dataIncludesHeader = true)
+		{
+			return (pulmotor::blit_section_info*) ((u8*)data + (dataIncludesHeader ? header_size : 0));
+		}
+
+		inline u8* get_root_data (void* data)
+		{
+			return (u8*)data + get_bsi (data, true)->data_offset + header_size;
+		}
+	}
+
+	template<class T>
+	struct data_ptr
+	{
+		typedef T value_type;
+
+		data_ptr () : bsi_ (0)
+		{
+#ifdef _DEBUG
+			debug_ptr_ = 0;
+#endif
+		}
+
+		data_ptr (void* pulM_ptr) : bsi_ (util::get_bsi(pulM_ptr))
+		{
+#ifdef _DEBUG
+			debug_ptr_ = (T*)((u8*)bsi_ + bsi_->data_offset);
+#endif
+		}
+
+		bool valid () const { return bsi_ != nullptr; }
+
+		T* get () const { return (T*)((u8*)bsi_ + bsi_->data_offset); }
+		T* operator->() const { return (T*)((u8*)bsi_ + bsi_->data_offset); }
+		T& operator*() const { return *(T*)((u8*)bsi_ + bsi_->data_offset); }
+
+		void* start () const { return (u8*)bsi_ - header_size; };
+		blit_section_info* bsi () const { return bsi_; };
+
+	private:
+		blit_section_info*	bsi_;
+#ifdef _DEBUG
+		T*	debug_ptr_;
+#endif
+	};
+
+
 
 template<class T>
 inline void blit_to_container (T& a, std::vector<unsigned char>& odata, target_traits const& tt);

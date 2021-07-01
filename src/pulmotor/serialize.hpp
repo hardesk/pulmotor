@@ -406,7 +406,8 @@ struct logic
 			using wc = typename access::wants_construct<Ar, Tp>::type;
 
 			object_meta v = logic<Tp>::s_version(ar, o.p, true);
-			// TODO: pass a bool with "placement_t" that specifies if the are holds an object
+			// TODO: expand "placement_t" with a bool that specifies if the area holds an object (as it may
+			// be uninitialized.
 			// if constexpr(Ar::is_reading)
 			// logic<Tp>::template prepare_area<wc::value>(o.p, Ar::is_reading && !v.is_nullptr(, [o.p]() { return p; }, [](auto){} );
 
@@ -575,8 +576,6 @@ struct logic
 			ar.write_data(o, size * sizeof(Tb));
 	}
 
-	//using Tu = std::underlying_type_t<Tb>;
-	//logic<Tu>::s_primitive(ar, (Tu&)o);
 	template<class Ar>
 	static void s_primitive(Ar& ar, Tb& o) {
 		if (sizeof(Tb) > 1)
