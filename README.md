@@ -78,3 +78,19 @@ int main()
 <primitive>         := arithmetic# | enum#
 VF                  := FLAGS-and-version
 ```
+
+## Building
+
+```
+$ b create: ../clang_build/,cxx config.cxx=clang++
+
+# configure for debug build
+$ b configure: ../clang_build/ config.cc.coptions="-g" config.cc.poptions="DEBUG"
+
+# configure for build release build
+$ b configure: ../clang_build/ config.cc.coptions="-O2" config.cc.poptions="NDEBUG"
+
+$ cd ../clang_build
+$ b
+```
+

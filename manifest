@@ -1,1 +1,5 @@
-dummy:yes
+: 1
+name: pulmotor
+version: 0.0.1
+summary: C++17 serialization library
+license: MIT
