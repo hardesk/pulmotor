@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "type_traits": "cpp",
+        "numbers": "cpp"
+    },
+    "C_Cpp.default.includePath": ["${workspaceFolder}/src", "${workspaceFolder}/tests/doctest/doctest"]
+}
