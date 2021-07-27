@@ -1,5 +1,8 @@
 : 1
 name: pulmotor
-version: 0.0.1
+version: 0.1.0
 summary: C++17 serialization library
 license: MIT
+description-file: README.md
+depends: nanobench >= 4.0
+requires: nanobench >= 4.0

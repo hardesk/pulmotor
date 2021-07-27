@@ -82,15 +82,10 @@ VF                  := FLAGS-and-version
 ## Building
 
 ```
-$ b create: ../clang_build/,cxx config.cxx=clang++
-
-# configure for debug build
-$ b configure: ../clang_build/ config.cc.coptions="-g" config.cc.poptions="DEBUG"
-
-# configure for build release build
-$ b configure: ../clang_build/ config.cc.coptions="-O2" config.cc.poptions="NDEBUG"
-
-$ cd ../clang_build
-$ b
+b create: ../clang_build/,cxx config.cxx=clang++
+b configure: ../clang_build/ config.cc.coptions="-g" config.cc.poptions="DEBUG" # configure for debug build
+# b configure: ../clang_build/ config.cc.coptions="-O2" config.cc.poptions="NDEBUG" # configure for build release build
+cd ../clang_build
+b
 ```
 
