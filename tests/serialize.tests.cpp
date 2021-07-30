@@ -1,5 +1,5 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
-#include <doctest.h>
+#include <doctest/doctest.h>
 #include <pulmotor/serialize.hpp>
 #include <pulmotor/std/utility.hpp>
 
@@ -653,7 +653,7 @@ TEST_CASE("ptr serialize")
 {
 	using namespace ptr_types;
 	using namespace pulmotor;
-	pulmotor::archive_vector_out ar;
+	archive_vector_out ar;
 
 	SUBCASE("serialize nullptr")
 	{

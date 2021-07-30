@@ -5,6 +5,12 @@ using cxx
 hxx{*}: extension = hpp
 cxx{*}: extension = cpp
 
+config.import.nanobench = $src_root/../nanobench.git
+config.import.doctest = $src_root/../doctest.git
+
+#import nanobench = nanobench%lib{nanobench}
+#import doctest = doctest%lib{doctest}
+
 #config.benchmark.exceptions=false
 #config.import.benchmark=$src_root/externals/benchmark/
 
