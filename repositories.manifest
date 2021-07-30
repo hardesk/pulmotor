@@ -1,0 +1,15 @@
+: 1
+role: prerequisite
+type: git
+url: https://github.com/hardesk/build2-nanobench.git
+
+:
+role: prerequisite
+type: git
+url: ../nanobench.git##HEAD
+
+:
+role: prerequisite
+type: git
+url: ../doctest.git##HEAD
+
