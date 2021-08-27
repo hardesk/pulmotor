@@ -46,7 +46,7 @@ enum : unsigned
 	ver_flag_debug_string		= 0x2000'0000u,
 	ver_debug_string_max_size	= 0x100u,
 
-	// align object on an alignment address specified by archive
+	// align object (except primitive types) on an alignment address specified by archive
 	ver_flag_align_object		= 0x1000'0000u,
 
 	// set if object was serialized using "wants-construct == true"
@@ -104,7 +104,8 @@ struct romu3
 		zState = zp - yp;  zState = PULMOTOR_ROTL(zState,44);
 		return xp;
 	}
-	unsigned r(unsigned range) { return uint64_t(unsigned(operator()())) * range >> (sizeof (unsigned)*8); }
+	unsigned r(unsigned range) { return uint64_t(unsigned(operator()())) * range >> sizeof (unsigned)*8; }
+	uint64_t r64(uint64_t range) { using z = unsigned __int128; return uint64_t( z(operator()()) * range >> sizeof (uint64_t)*8 ); }
 };
 
 template<class T>
@@ -136,7 +137,6 @@ inline nv_t<T> nv(char const* name, T const& o)
 
 template<class T> struct is_nvp : public std::false_type {};
 template<class T> struct is_nvp<nv_t<T>> : public std::true_type {};
-
 
 /*
 template<class AsT, class ActualT>

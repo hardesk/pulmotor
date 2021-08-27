@@ -28,15 +28,15 @@ class block_common
 protected:
 	char* m_data;
 	fs_t m_bloff; // block offset in stream
-	size_t m_blsize, m_cur;
+	size_t m_blsize, m_cur; // block size and offset in block
 
 	void zero() { m_data=nullptr; m_bloff=0; m_blsize=0; m_cur=0; }
 
 public:
 	block_common() { zero(); }
-	fs_t offset() const { return m_bloff + m_cur; }
-	size_t avail() { return m_blsize - m_cur; }
-	char* data() { return m_data + m_cur; }
+	fs_t offset() const { return m_bloff + m_cur; } // absolute offset of 'consumed' pointer
+	size_t avail() { return m_blsize - m_cur; } // number of bytes available for immediate consumption (starting at current data)
+	char* data() { return m_data + m_cur; } // ptr to current pointer
 };
 
 class source : public block_common
@@ -103,11 +103,11 @@ public:
 class source_buffer : public source
 {
 public:
-	source_buffer(char const* p, size_t sz)
+	source_buffer(char const* data, size_t data_size)
 	{
-		m_data = const_cast<char*>(p);
+		m_data = const_cast<char*>(data);
 		m_bloff = 0;
-		m_blsize = sz;
+		m_blsize = data_size;
 		m_cur = 0;
 	}
 
@@ -127,6 +127,7 @@ class sink_ostream : public sink
 
 public:
 	sink_ostream(std::ostream& os);
+	sink_ostream(sink_ostream const& os) = default;
 	~sink_ostream();
 
 	void write(void const* data, size_t size, std::error_code& ec);

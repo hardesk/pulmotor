@@ -13,6 +13,8 @@
 #include <algorithm>
 #include <typeinfo>
 #include <string>
+#include <ios>
+#include <fstream>
 #include <unordered_map>
 
 #include "stream.hpp"
@@ -106,23 +108,27 @@ struct archive_write_version_util
 	template<class T>
 	void write_object_prefix(T const* obj, unsigned version) {
 		assert(version != (no_version & ver_mask));
-		u32 vf = version;
 
+		u32 vf = version;
 		if (obj == nullptr)
 			vf |= ver_flag_null_ptr;
 
+		write_object_prefix_impl(typeid(T).name(), strlen(typeid(T).name()), vf);
+	}
+
+private:
+	void write_object_prefix_impl(char const* obj_name, size_t obj_name_len, unsigned vf)
+	{
 		fs_t block_size = 0;
 		if ((m_flags & ver_flag_align_object)) {// || (m_flags & ver_flag_debug_string)) {
 			vf |= ver_flag_garbage_length;
 		}
 
-		std::string name;
 		u32 name_length = 0;
 		if (m_flags & ver_flag_debug_string) {
 			vf |= ver_flag_debug_string;
 
-			name = typeid(T).name();
-			name_length = name.size();
+			name_length = obj_name_len;
 			if (name_length > ver_debug_string_max_size) name_length = ver_debug_string_max_size;
 			block_size += sizeof name_length + name_length;
 		}
@@ -152,7 +158,7 @@ struct archive_write_version_util
 
 		if (vf & ver_flag_debug_string) {
 			self().write_basic(name_length);
-			self().write_data(name.data(), name_length);
+			self().write_data((void*)obj_name, name_length);
 		}
 
 		if (vf & ver_flag_align_object) {
@@ -184,7 +190,7 @@ struct object_meta
 
 	unsigned version() const { return vf & ver_mask; }
 	unsigned is_nullptr() const { return vf & ver_flag_null_ptr; }
-	bool is_no_version() const { return (vf & ver_flag_no_version) != 0; }
+	bool include_version() const { return (vf & ver_flag_no_version) == 0; }
 	void set_version(unsigned ver) { vf = (vf&~ver_mask) | (ver&ver_mask); }
 
 	operator unsigned() const { return vf & ver_mask; }
@@ -198,7 +204,7 @@ struct archive_read_util
 
 	template<class T>
 	void read_basic_aligned(T& o, unsigned align = 0) {
-		align_stream(align == 0 ? sizeof o : align);
+		self().align_stream(align == 0 ? sizeof o : align);
 		self().read_basic(o);
 	}
 
@@ -280,7 +286,7 @@ struct archive_whole : archive, archive_read_util<archive_whole>
 
 	template<class T>
 	void read_basic(T& data) {
-		assert( source_.offset() + sizeof(T) <= source_.avail());
+		assert( sizeof(T) <= source_.avail());
 		assert( ((uintptr_t)source_.data() & (sizeof(T)-1)) == 0 && "stream alignment issues");
 		data = *reinterpret_cast<T*>(source_.data());
 		source_.advance(sizeof(T), ec_);
@@ -288,7 +294,7 @@ struct archive_whole : archive, archive_read_util<archive_whole>
 
 	void read_data (void* dest, size_t size)
 	{
-		assert( source_.offset() + size <= source_.avail());
+		assert( size <= source_.avail());
 		memcpy( dest, source_.data(), size);
 		source_.advance( size, ec_ );
 	}
@@ -329,6 +335,33 @@ struct archive_chunked : archive, archive_read_util<archive_chunked>
 
 private:
 	source& source_;
+};
+
+struct archive_istream : archive, archive_read_util<archive_istream>
+{
+	archive_istream (std::istream& s) : stream_ (s), ec_{} {}
+
+	fs_t offset() const { return stream_.tellg(); }
+
+	enum { is_reading = 1, is_writing = 0 };
+
+	void advance(size_t s) {
+		stream_.seekg(stream_.tellg() + std::streamoff(s));
+	}
+
+	template<class T>
+	void read_basic(T& data) {
+		stream_.read((char*)&data, sizeof data);
+	}
+
+	void read_data (void* dest, size_t size) {
+		stream_.read((char*)dest, size);
+	}
+
+	std::error_code ec_;
+
+private:
+	std::istream& stream_;
 };
 
 #if 0
@@ -601,6 +634,7 @@ public:
 	void write_basic (T const& data)
 	{
 		sink_.write(&data, sizeof(data), ec);
+		written_ += sizeof data;
 	}
 
 	void write_data (void const* src, size_t size)
@@ -663,19 +697,19 @@ struct archive_vector_in
 	std::string str() const { return std::string(data.data(), data.size()); }
 };
 
-template<class T>
-size_t load_archive (path_char const* pathname, T&& obj, std::error_code& ec)
-{
-	source_mmap s (pathname, source_mmap::ro, ec);
-	if (ec)
-		return 0U;
+// template<class T>
+// size_t load_archive (path_char const* pathname, T&& obj, std::error_code& ec)
+// {
+// 	source_mmap s (pathname, source_mmap::ro, ec);
+// 	if (ec)
+// 		return 0U;
 
-	archive_whole ar(s);
-	ar | std::forward<T>(obj);
-	ec = ar.ec_;
+// 	archive_whole ar(s);
+// 	ar | std::forward<T>(obj);
+// 	ec = ar.ec_;
 
-	return ar.offset();
-}
+// 	return ar.offset();
+// }
 
 /*
 template<class T>
@@ -699,22 +733,22 @@ size_t load_archive_debug (stir::path const& pathname, T& obj, std::error_code& 
 	return inA.offset();
 }*/
 
-template<class T>
-size_t save_archive (path_char const* pathname, T&& obj, std::error_code& ec)
-{
-	std::fstream os(pathname, std::ios_base::binary|std::ios_base::out);
-	if (os.good()) {
-		ec = std::make_error_code(std::errc::invalid_argument);
-		return 0;
-	}
+// template<class T>
+// size_t save_archive (path_char const* pathname, T&& obj, std::error_code& ec)
+// {
+// 	std::fstream os(pathname, std::ios_base::binary|std::ios_base::out);
+// 	if (os.good()) {
+// 		ec = std::make_error_code(std::errc::invalid_argument);
+// 		return 0;
+// 	}
 
-	sink_ostream s(os);
-	archive_sink ar(s);
+// 	sink_ostream s(os);
+// 	archive_sink ar(s);
 
-	ar | std::forward<T>(obj);
+// 	ar | std::forward<T>(obj);
 
-	return ar.offset();
-}
+// 	return ar.offset();
+// }
 
 /*
 template<class T>

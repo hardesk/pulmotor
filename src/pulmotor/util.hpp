@@ -83,6 +83,40 @@ is_pow(T a)
 	return a && !(a & (a-1U));
 }
 
+// adapted from https://codereview.stackexchange.com/a/193436
+template<class F, class Tuple, size_t... Is>
+inline auto map_impl(F&& f, Tuple&& tup, std::index_sequence<Is...>)
+{
+	if constexpr (sizeof...(Is) == 0)
+		return std::tuple<>{};
+	// return void when function returns void
+	else if constexpr (std::is_same< decltype(f(std::get<0>(tup))), void >::value) {
+		(f(std::get<Is>(tup)), ...);
+		return;
+	}
+	// when returning a reference, return a tuple of references instead of making copies
+	else if constexpr (std::is_lvalue_reference_v< decltype(f(std::get<0>(tup))) >)
+		return std::tie (f(std::get<Is>(tup))... );
+	// or forward when the function returns &&
+	else if constexpr (std::is_rvalue_reference_v< decltype(f(std::get<0>(tup))) >)
+		return std::forward_as_tuple (f(std::get<Is>(tup))... );
+	// otherwise keep the results by value and return a tuple
+	else
+		return std::tuple( f(std::get<Is>(tup))... );
+}
+
+template<class F, class... Args>
+auto map(F&& f, std::tuple<Args...> const& tup)
+{
+	return map_impl( std::forward<F>(f), tup, std::make_index_sequence<sizeof...(Args)>());
+}
+
+template<class F, class... Args>
+auto map(F&& f, std::tuple<Args...>& tup)
+{
+	return map_impl( std::forward<F>(f), tup, std::make_index_sequence<sizeof...(Args)>());
+}
+
 template<class S, class Q>
 struct euleb_count
 {

@@ -380,16 +380,16 @@ struct logic
 	static void s_serializable(Ar& ar, Tb& o)
 	{
 		if constexpr(std::is_pointer_v<Tb>) {
-			using Tp = typename std::remove_pointer<Tb>::type;
+			using Tp = typename std::remove_const<typename std::remove_pointer<Tb>::type>::type;
 			using wc = typename access::wants_construct<Ar, Tp>::type;
 
 			auto new_aligned = []() { return new typename std::aligned_storage<sizeof(Tp)>::type; };
 			auto delete_obj = [](Tp* p) { delete p; };
 
-			object_meta v = logic<Tp>::s_version(ar, o, true);
+			object_meta v = logic<Tp>::s_version(ar, const_cast<Tp*>(o), true);
 			if constexpr(Ar::is_reading)
-				logic<Tp>::template prepare_area<wc::value>(&o, !v.is_nullptr(), new_aligned, delete_obj);
-			logic<Tp>::s_pointer(ar, o, v, wc());
+				logic<Tp>::template prepare_area<wc::value>(reinterpret_cast<Tp**>(&o), !v.is_nullptr(), new_aligned, delete_obj);
+			logic<Tp>::s_pointer(ar, const_cast<Tp*>(o), v, wc());
 		} else if constexpr(is_alloc<Tb>::value) {
 			using Tp = typename Tb::type;
 			using wc = typename access::wants_construct<Ar, Tp>::type;
@@ -406,8 +406,8 @@ struct logic
 			using wc = typename access::wants_construct<Ar, Tp>::type;
 
 			object_meta v = logic<Tp>::s_version(ar, o.p, true);
-			// TODO: expand "placement_t" with a bool that specifies if the area holds an object (as it may
-			// be uninitialized.
+			// TODO: expand "placement_t" with a bool that specifies whether the area holds an object (as it may
+			// be initialized or uninitialized).
 			// if constexpr(Ar::is_reading)
 			// logic<Tp>::template prepare_area<wc::value>(o.p, Ar::is_reading && !v.is_nullptr(, [o.p]() { return p; }, [](auto){} );
 
@@ -438,8 +438,8 @@ struct logic
 			} else if constexpr(Ar::is_writing) {
 				version = object_meta { get_meta<Tb>::value };
 
-				// when version is 'no-version', we still must write flags (and thus version).  in such case set it to 0.
-				if (version.is_no_version()) version.set_version(version_default);
+				// we still must write flags (and thus version) even when 'no-version' is asked. in such case set it to 0.
+				if (!version.include_version()) version.set_version(version_default);
 				if (!o.ptr)
 					throw std::invalid_argument("bad construct when writing stream");
 				ar.template write_object_prefix<To>(*o.ptr, version);
@@ -512,10 +512,10 @@ struct logic
 	{
 		object_meta v = object_meta { get_meta<Tb>::value };
 		if constexpr(Ar::is_reading) {
-			if (!v.is_no_version() || always_write_verflags)
+			if (v.include_version() || always_write_verflags)
 				v = ar.process_prefix();
 		} else {
-			if (!v.is_no_version() || always_write_verflags)
+			if (v.include_version() || always_write_verflags)
 				ar.template write_object_prefix<Tb>(o, v);
 		}
 		return v;
@@ -555,7 +555,7 @@ struct logic
 	static void s_primitive_array(Ar& ar, Tb& o) {
 		constexpr size_t N = std::extent<Tb>::value;
 		using To = typename std::remove_all_extents<Tb>::type;
-		if (sizeof(Tb) > 1)
+		if constexpr (sizeof(Tb) > 1)
 			ar.align_stream(sizeof(Tb));
 		if constexpr(Ar::is_reading) {
 			ar.read_data(o, N * sizeof(To));
@@ -566,7 +566,7 @@ struct logic
 
 	template<class Ar>
 	static void s_primitive_array(Ar& ar, Tb* o, size_t size) {
-		if (sizeof(Tb) > 1)
+		if constexpr (sizeof(Tb) > 1)
 			ar.align_stream(sizeof(Tb));
 		//ar | as<u32>(size);
 		//ar | size;
@@ -578,7 +578,7 @@ struct logic
 
 	template<class Ar>
 	static void s_primitive(Ar& ar, Tb& o) {
-		if (sizeof(Tb) > 1)
+		if constexpr (sizeof(Tb) > 1)
 			ar.align_stream(sizeof(Tb));
 		if constexpr(Ar::is_reading) {
 			ar.read_basic(const_cast<Tb&> (o));
@@ -591,6 +591,15 @@ struct logic
 template<class ArchiveT, class T>
 inline typename is_archive_if<ArchiveT>::type&
 operator| (ArchiveT& ar, T const& obj)
+{
+	using Tb = std::remove_cv_t<T>;
+	logic<Tb>::s_serializable(ar, const_cast<Tb&>(obj));
+	return ar;
+}
+
+template<class ArchiveT, class T>
+inline typename is_archive_if<ArchiveT>::type&
+operator& (ArchiveT& ar, T const& obj)
 {
 	using Tb = std::remove_cv_t<T>;
 	logic<Tb>::s_serializable(ar, const_cast<T&>(obj));
