@@ -83,6 +83,32 @@ is_pow(T a)
 	return a && !(a & (a-1U));
 }
 
+template<class T>
+struct fun_traits;
+
+template<size_t I, class T, class... Args> struct arg_ii { using type = typename arg_ii<I-1, Args...>::type; };
+template<class T, class... Args> struct arg_ii<0U, T, Args...> { using type = T; };
+template<size_t I, class... Args> struct arg_i { using type = typename arg_ii<I, Args...>::type; };
+template<size_t I> struct arg_i<I> { using type = void; };
+
+template<class R, class T, class... Args>
+struct fun_traits<R (T::*)(Args...)>
+{
+    static constexpr unsigned arity = sizeof...(Args);
+    using return_type = R;
+    using class_type = T;
+    template<size_t I> using arg = typename arg_i<I, Args...>::type;
+};
+
+template<class R, class... Args>
+struct fun_traits<R (*)(Args...)>
+{
+    static constexpr unsigned arity = sizeof...(Args);
+    using return_type = R;
+    template<size_t I> using arg = typename arg_i<I, Args...>::type;
+};
+
+
 // adapted from https://codereview.stackexchange.com/a/193436
 template<class F, class Tuple, size_t... Is>
 inline auto map_impl(F&& f, Tuple&& tup, std::index_sequence<Is...>)
