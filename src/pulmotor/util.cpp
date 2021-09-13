@@ -65,6 +65,101 @@ std::string abi_demangle(char const* mangled)
 	return ret;
 }
 
+void location_map::analyze()
+{
+	m_lookup.clear();
+	for (size_t line = 1, pos = 0; ; ++line) {
+		char const* n = ctT::find(m_start + pos, m_size - pos, '\n');
+		if (n == nullptr) {
+			// in case the string doesn't end on a new line
+			if (pos != m_size)
+				m_lookup.push_back( info { m_size, line } );
+			break;
+			}
+		size_t np = n - m_start;
+		m_lookup.push_back( info { np, line } );
+		pos = np + 1;
+	}
+
+	assert(check_consistency());
+}
+
+bool location_map::check_consistency()
+{
+	size_t prevL = 0, prevP = 0;
+	for (auto const& ii : m_lookup)
+	{
+		if (ii.line != prevL + 1) return false;
+		prevL = ii.line;
+
+		if ( !(prevP <= ii.eol) ) return false;
+		prevP = ii.eol;
+	}
+
+	return true;
+}
+
+text_location
+location_map::lookup(size_t offset) {
+
+	if (offset > m_size) {
+		assert(false && "line offset out of bounds");
+		return text_location{};
+	}
+
+	auto it = std::lower_bound(m_lookup.begin(), m_lookup.end(),
+		offset,
+		[](info const& i, size_t off ) { return i.eol < off; }
+	);
+
+	size_t line = 1, search_start = 0, eol;
+	if (it != m_lookup.end()) {
+		eol = it->eol;
+		if (it != m_lookup.begin()) {
+			auto p = it;
+			--p;
+			search_start = p->eol + 1;
+			line = p->line + 1;
+		}
+
+		if (line == it->line)
+			return text_location { unsigned(line), unsigned(offset - search_start + 1) };
+	} else {
+		size_t len = m_size - offset;
+		char const* pnl = (char const*)memchr(m_start + offset, '\n', len);
+
+		eol = pnl == nullptr ? m_size : (pnl - m_start);
+
+		// continue scanning for EOLs starting where we left off.
+		if (!m_lookup.empty()) {
+			search_start = m_lookup.back().eol + 1;
+			line = m_lookup.back().line + 1;
+		}
+	}
+
+	std::vector<info> ins;
+	do {
+		size_t len = eol - search_start;
+		char const* pnl = (char const*)memchr(m_start + search_start, '\n', len);
+		if (!pnl) {
+			// we looked till the end of the buffer (which doesn't end on a newline) and found no new line. To
+			// avoid repeated scanning append an 'info' with simulated eol at the end of the buffer.
+			if (eol == m_size && len != 0) {
+				assert( (m_lookup.empty() || m_lookup.back().eol != m_size) && "lookup table already contains end-buffer eol" );
+				ins.push_back( info { m_size, line } );
+			}
+
+			m_lookup.insert(it, ins.begin(), ins.end());
+			assert(check_consistency());
+			return text_location { unsigned(line), unsigned(offset - search_start + 1) };
+		}
+
+		size_t nl = pnl - m_start;
+		ins.push_back( info { nl, line++ } );
+		search_start = nl + 1;
+	} while (true);
+}
+
 // encode: if don't fit into container (eg. 31bit), set hibit and store the rest as value (eg. 31bit)
 template<class T>
 inline size_t euleb_impl(size_t s, T* o) {

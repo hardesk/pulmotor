@@ -4,6 +4,7 @@
 #include "pulmotor_config.hpp"
 #include "pulmotor_types.hpp"
 #include <cstring>
+#include <string_view>
 #include <vector>
 #include <algorithm>
 #include <utility>
@@ -142,6 +143,32 @@ auto map(F&& f, std::tuple<Args...>& tup)
 {
 	return map_impl( std::forward<F>(f), tup, std::make_index_sequence<sizeof...(Args)>());
 }
+
+struct text_location
+{
+	unsigned line, column;
+	bool operator==(text_location const&) const = default;
+};
+
+struct location_map
+{
+	// mac: \n (10)
+	// win: \r\n (13) (10)
+	char const* m_start;
+	size_t m_size;
+
+	struct info { size_t eol, line; };
+	std::vector<info> m_lookup;
+
+	using ctT = std::char_traits<char>;
+
+	location_map(char const* start, size_t len) : m_start(start), m_size(len) {}
+
+	void analyze();
+	bool check_consistency();
+
+	text_location lookup(size_t offset);
+};
 
 template<class S, class Q>
 struct euleb_count

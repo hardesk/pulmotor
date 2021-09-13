@@ -56,7 +56,8 @@ enum : unsigned
 	ver_flag_no_version			= 0x0200'0000u,
 
 	// mask to get only the version part
-	ver_mask					= 0x00ffffffu
+	ver_mask					= 0x00ff'ffffu,
+	ver_mask_bits				= 24
 };
 
 
@@ -104,7 +105,9 @@ struct romu3
 		zState = zp - yp;  zState = PULMOTOR_ROTL(zState,44);
 		return xp;
 	}
+	// [ 0; range [
 	unsigned r(unsigned range) { return uint64_t(unsigned(operator()())) * range >> sizeof (unsigned)*8; }
+	// [ 0; range [
 	uint64_t r64(uint64_t range) { using z = unsigned __int128; return uint64_t( z(operator()()) * range >> sizeof (uint64_t)*8 ); }
 };
 
@@ -123,6 +126,7 @@ inline nv_t<T> nv(char const* name, T const& o)
 {
 	return nv_t<T> (name, o);
 }
+
 #define PULMOTOR_iPSTR(x) #x
 #define PULMOTOR_PSTR(x) PULMOTOR_iPSTR(x)
 #define PULMOTOR_iPCAT(m, x) m ## x
