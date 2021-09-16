@@ -14,6 +14,7 @@
 #include <system_error>
 
 namespace pulmotor {
+
 namespace util {
 
 PULMOTOR_ATTR_DLL int get_pagesize();
@@ -144,31 +145,6 @@ auto map(F&& f, std::tuple<Args...>& tup)
 	return map_impl( std::forward<F>(f), tup, std::make_index_sequence<sizeof...(Args)>());
 }
 
-struct text_location
-{
-	unsigned line, column;
-	bool operator==(text_location const&) const = default;
-};
-
-struct location_map
-{
-	// mac: \n (10)
-	// win: \r\n (13) (10)
-	char const* m_start;
-	size_t m_size;
-
-	struct info { size_t eol, line; };
-	std::vector<info> m_lookup;
-
-	using ctT = std::char_traits<char>;
-
-	location_map(char const* start, size_t len) : m_start(start), m_size(len) {}
-
-	void analyze();
-	bool check_consistency();
-
-	text_location lookup(size_t offset);
-};
 
 template<class S, class Q>
 struct euleb_count
@@ -192,6 +168,100 @@ void hexdump (void const* p, int len);
 
 size_t write_file (path_char const* name, u8 const* ptr, size_t size);
 
-}} // pulmotor::util
+} // util
+
+template<class F>
+struct scope_exit
+{
+	scope_exit(F&& f)
+		noexcept( std::is_nothrow_copy_constructible<F>::value )
+		: fun( std::forward<std::decay_t<F>>(f) )
+		{}
+	scope_exit(scope_exit<F>&& a)
+		noexcept( std::is_nothrow_move_constructible<F>::value )
+		: fun(std::move(a.fun)), suspended(a.suspended)
+		{ a.suspended = true; }
+	~scope_exit() noexcept {
+		if (!suspended)
+			fun();
+	}
+
+	scope_exit(scope_exit const&) = delete;
+	scope_exit const& operator=(scope_exit const&) = delete;
+	scope_exit const& operator=(scope_exit const&&) = delete;
+
+	void release() noexcept { suspended = true; }
+
+private:
+	std::decay_t<F> fun;
+	bool suspended = false;
+};
+
+template<class F>
+scope_exit(F) -> scope_exit<F>;
+
+struct text_location
+{
+	unsigned line, column;
+	bool operator==(text_location const&) const = default;
+};
+
+struct location_map
+{
+	using ctT = std::char_traits<char>;
+
+	location_map(char const* start, size_t len) : m_start(start), m_size(len) {}
+
+	void analyze();
+	text_location lookup(size_t offset);
+	size_t line_count() const { return m_lookup.size(); }
+
+private:
+	bool check_consistency();
+
+	// mac: \n (10)
+	// win: \r\n (13) (10)
+	char const* m_start;
+	size_t m_size;
+
+	struct info { size_t eol, line; };
+	std::vector<info> m_lookup;
+};
+
+#if PULMOTOR_EXCEPTIONS
+
+enum err
+{
+	err_unspecified,
+	err_bad_stream,
+	err_unexpected_value_type,
+	err_key_not_found,
+	err_value_out_of_range
+};
+struct error : std::runtime_error
+{
+	error(err c, std::string const& msg) : std::runtime_error(msg), code(c) {}
+	err code;
+};
+
+struct yaml_error : error
+{
+	text_location location;
+	std::string filename;
+	yaml_error(err c, std::string const& msg, text_location const& l, std::string const& filename_)
+	:	error(c, msg)
+	,	location(l)
+	,	filename(filename_)
+	{}
+};
+
+
+
+#endif
+
+PULMOTOR_ATTR_DLL void throw_error(err e, char const* msg, char const* filename, text_location loc);
+PULMOTOR_ATTR_DLL void throw_error(char const* msg, ...);
+
+} // pulmotor
 
 #endif

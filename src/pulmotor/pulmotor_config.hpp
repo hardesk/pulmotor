@@ -18,6 +18,14 @@
 #define PULMOTOR_ATTR_DLL
 #endif
 
+#if !defined(PULMOTOR_EXCEPTIONS)
+#define PULMOTOR_EXCEPTIONS __cpp_exceptions
+#endif
+
+#if !defined(PULMOTOR_RTTI)
+#define PULMOTOR_RTTI __cpp_rtti
+#endif
+
 #define PULMOTOR_UNUSED(x) ((void)x)
 //#define PULMOTOR_STIR_PATH_SUPPORT 1
 

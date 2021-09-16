@@ -11,8 +11,10 @@ using namespace std::string_literals;
 #define PRINT_ARG1(x) "one:" PULMOTOR_PSTR(x)
 #define PRINT_ARG2(x, y) "two:" PULMOTOR_PSTR(x) ":" PULMOTOR_PSTR(y)
 
+void test_yaml();
+
 namespace pulmotor::util {
-doctest::String toString(pulmotor::util::text_location const& sl)
+doctest::String toString(pulmotor::text_location const& sl)
 {
 	char buf[32];
 	snprintf(buf, sizeof buf, "%u:%u", (unsigned)sl.line, (unsigned)sl.column);
@@ -77,6 +79,46 @@ TEST_CASE("map tuple")
 	}
 }
 
+TEST_CASE("scoped exit")
+{
+	bool s0 = false, s1 = false, s2 = false, s3 = false, s4 = false;
+
+	pulmotor::scope_exit e( [&s0]() { s0 = true; } );
+	CHECK( s0 == false );
+
+	{
+		pulmotor::scope_exit e( [&s1]() { s1 = true; } );
+	}
+	CHECK( s1 == true );
+
+	{
+		try {
+			pulmotor::scope_exit e( [&s2]() { s2 = true; } );
+			throw int(10);
+		} catch(int e) {
+			CHECK(s2 == true);
+		}
+	}
+	CHECK( s2 == true );
+
+	{
+		pulmotor::scope_exit e( [&s3]() { s3 = true; } );
+		e.release();
+	}
+	CHECK( s3 == false );
+
+	{
+		try {
+			pulmotor::scope_exit e( [&s4]() { s4 = true; } );
+			e.release();
+			throw int(10);
+		} catch(int e) {
+			CHECK(s4 == false);
+		}
+	}
+	CHECK( s4 == false );
+}
+
 TEST_CASE("location map")
 {
 	SUBCASE("basic")
@@ -87,22 +129,22 @@ TEST_CASE("location map")
 		char const s3[] = "x1x\nyy2yy";
 		char const s4[] = "\nxxx2";
 
-		auto check = [] (std::string_view s, char ch, pulmotor::util::text_location l) {
+		auto check = [] (std::string_view s, char ch, pulmotor::text_location l) {
 
 			auto gp = [](std::string_view s, char ch) -> size_t {
 				size_t p = s.find_first_of(ch);
 				return p == std::string::npos ? 0 : p;
 			};
 
-			pulmotor::util::location_map m0 (s.data(), s.size());
+			pulmotor::location_map m0 (s.data(), s.size());
 			m0.analyze();
 			CHECK( m0.lookup(gp(s, ch)) == l);
 
-			pulmotor::util::location_map m (s.data(), s.size());
+			pulmotor::location_map m (s.data(), s.size());
 			CHECK( m.lookup( gp(s, ch)) == l );
 		};
 
-		using sl = pulmotor::util::text_location;
+		using sl = pulmotor::text_location;
 
 		check( s0, 'x', sl{1,1} );
 
@@ -119,9 +161,9 @@ TEST_CASE("location map")
 
 	SUBCASE("full check")
 	{
-		using namespace pulmotor::util;
+		using namespace pulmotor;
 
-		struct info { size_t offset; pulmotor::util::text_location loc; };
+		struct info { size_t offset; pulmotor::text_location loc; };
 
 		auto build_info = [](std::string_view s, std::vector<info>& o) {
 			size_t line = 1, col = 1;
@@ -163,7 +205,7 @@ TEST_CASE("location map")
 			build_info(sa[i], ia[i]);
 
 			SUBCASE("analyze") {
-				pulmotor::util::location_map l (sa[i].data(), sa[i].size());
+				pulmotor::location_map l (sa[i].data(), sa[i].size());
 				l.analyze();
 
 				SUBCASE("iterate") {
@@ -177,12 +219,12 @@ TEST_CASE("location map")
 			}
 
 			SUBCASE("clean, iterate") {
-				pulmotor::util::location_map l (sa[i].data(), sa[i].size());
+				pulmotor::location_map l (sa[i].data(), sa[i].size());
 				check(l, ia[i]);
 			}
 
 			SUBCASE("clean, random") {
-				pulmotor::util::location_map l (sa[i].data(), sa[i].size());
+				pulmotor::location_map l (sa[i].data(), sa[i].size());
 				for (int g=0; g<16; ++g)
 					check_random(g, l, ia[i]);
 			}
