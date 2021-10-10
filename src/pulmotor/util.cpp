@@ -108,6 +108,119 @@ bool duleb(size_t& s, int& state, u8 v) { return duleb_impl(s, state, v); }
 bool duleb(size_t& s, int& state, u16 v) { return duleb_impl(s, state, v); }
 bool duleb(size_t& s, int& state, u32 v) { return duleb_impl(s, state, v); }
 
+size_t base64enc_length(size_t raw_length)
+{
+	size_t trips = raw_length / 3;
+	size_t rem = raw_length % 3; // 0: 0, 1: 2, 2: 1
+	return trips * 4 + (rem == 0 ? 0 : (3 - rem));
+}
+
+constexpr static char base64enc_byte(unsigned value) {
+	return value < 26 ? 'A' + value
+	     : value < 52 ? 'a' - 26 + value
+		 : value < 62 ? '0' - 52 + value
+		 : value < 63 ? '+' : '/';
+}
+
+void base64enc(char const* src, size_t raw_length, char* dest)
+{
+	size_t mult3 = raw_length / 3 * 3, rem = raw_length % 3, i = 0;
+	for (; i<mult3; i += 3, dest += 4) {
+		unsigned v =
+			unsigned(src[i+0]) << 16 |
+			unsigned(src[i+1]) << 8 |
+			unsigned(src[i+2]);
+		dest[0] = base64enc_byte(v & 0xFC0000) >> 18;
+		dest[1] = base64enc_byte(v & 0x03F000) >> 12;
+		dest[2] = base64enc_byte(v & 0x000FC0) >> 6;
+		dest[3] = base64enc_byte(v & 0x00003F);
+	}
+
+	if (rem) {
+		unsigned v =unsigned(src[i+0]) << 16;
+		if (rem == 2) v |= unsigned(src[i+1]) << 8;
+
+		dest[0] = base64enc_byte(v & 0xFC0000) >> 18;
+		dest[1] = base64enc_byte(v & 0xFC0000) >> 12;
+		if (rem == 2) dest[1] = base64enc_byte(v & 0x000FC0) >> 6; else dest[1] = '=';
+		dest[2] = '=';
+	}
+}
+
+size_t base64dec_length_approx(size_t enc_length)
+{
+	return util::align<4>(enc_length) / 4 * 3;
+}
+
+static u8 b64dec_tab[256] =
+{
+	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 62,  0, 62,  0, 63,
+	52, 53, 54, 55, 56, 57, 58, 59, 60, 61,  0,  0,  0,  0,  0,  0,
+	 0,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
+	15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,  0,  0,  0,  0, 63,
+	 0, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+	41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,  0,  0,  0,  0,  0,
+	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0
+};
+
+size_t base64dec(char const* src, size_t raw_length, char* dest)
+{
+	size_t quants = raw_length & ~0x3u, rem = raw_length & 0x3u, i = 0;
+	size_t result = 0;
+	for(; i<quants; i+=4)
+	{
+		size_t n = 3;
+		unsigned v =
+			b64dec_tab[ src[i+0] ] << 18 |
+			b64dec_tab[ src[i+1] ] << 12 |
+			b64dec_tab[ src[i+2] ] << 8 |
+			b64dec_tab[ src[i+3] ];
+
+		if (src[i+3] == '=') { n--; if (src[i+2] == '=') n--; }
+
+		*dest++ = u8(v & 0xFF0000 >> 16);
+		if (n > 1) {
+			*dest++ = u8(v & 0x00FF00 >> 8);
+			if (n > 2)
+				*dest++ = u8(v & 0x0000FF);
+		}
+		result += n;
+	}
+
+	if (rem) {
+		unsigned v = 0;
+		unsigned non_pad = 0;
+		for(; i<raw_length; ) {
+			v <<= 6;
+			char c = src[i];
+			if (c != '=') {
+				v |= b64dec_tab[ src[i] ];
+				non_pad++;
+			}
+		}
+
+		assert(non_pad <= 3 && "tail should not contain four non-padding characters");
+
+		*dest++ = u8(v & 0xFF0000 >> 16);
+		++result;
+		if (non_pad > 2) {
+			*dest++ = u8(v & 0x00FF00 >> 8);
+			++result;
+		}
+	}
+
+	return result;
+}
+
 std::string dm (char const* a)
 {
 #if defined(__GNUC__) && 0
