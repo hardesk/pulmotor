@@ -108,11 +108,13 @@ bool duleb(size_t& s, int& state, u8 v) { return duleb_impl(s, state, v); }
 bool duleb(size_t& s, int& state, u16 v) { return duleb_impl(s, state, v); }
 bool duleb(size_t& s, int& state, u32 v) { return duleb_impl(s, state, v); }
 
-size_t base64enc_length(size_t raw_length)
-{
+size_t base64enc_length(size_t raw_length, bool with_padding) {
 	size_t trips = raw_length / 3;
-	size_t rem = raw_length % 3; // 0: 0, 1: 2, 2: 1
-	return trips * 4 + (rem == 0 ? 0 : (3 - rem));
+	size_t rem = raw_length % 3; // 0: 0, 1: 2, 2: 3
+	if (with_padding)
+		return (trips + (rem != 0)) * 4;
+	else
+		return trips * 4 + (rem == 0 ? 0 : (rem + 1));
 }
 
 constexpr static char base64enc_byte(unsigned value) {
@@ -122,28 +124,27 @@ constexpr static char base64enc_byte(unsigned value) {
 		 : value < 63 ? '+' : '/';
 }
 
-void base64enc(char const* src, size_t raw_length, char* dest)
-{
+void base64enc(char const* src, size_t raw_length, char* dest, bool do_pad) {
 	size_t mult3 = raw_length / 3 * 3, rem = raw_length % 3, i = 0;
 	for (; i<mult3; i += 3, dest += 4) {
 		unsigned v =
 			unsigned(src[i+0]) << 16 |
 			unsigned(src[i+1]) << 8 |
 			unsigned(src[i+2]);
-		dest[0] = base64enc_byte(v & 0xFC0000) >> 18;
-		dest[1] = base64enc_byte(v & 0x03F000) >> 12;
-		dest[2] = base64enc_byte(v & 0x000FC0) >> 6;
+		dest[0] = base64enc_byte((v & 0xFC0000) >> 18);
+		dest[1] = base64enc_byte((v & 0x03F000) >> 12);
+		dest[2] = base64enc_byte((v & 0x000FC0) >> 6);
 		dest[3] = base64enc_byte(v & 0x00003F);
 	}
 
 	if (rem) {
-		unsigned v =unsigned(src[i+0]) << 16;
+		unsigned v = unsigned(src[i+0]) << 16;
 		if (rem == 2) v |= unsigned(src[i+1]) << 8;
 
-		dest[0] = base64enc_byte(v & 0xFC0000) >> 18;
-		dest[1] = base64enc_byte(v & 0xFC0000) >> 12;
-		if (rem == 2) dest[1] = base64enc_byte(v & 0x000FC0) >> 6; else dest[1] = '=';
-		dest[2] = '=';
+		dest[0] = base64enc_byte((v & 0xFC0000) >> 18);
+		dest[1] = base64enc_byte((v & 0x03F000) >> 12);
+		if (rem == 2) dest[2] = base64enc_byte( (v & 0x000FC0) >> 6); else if (do_pad) dest[2] = '=';
+		if (do_pad) dest[3] = '=';
 	}
 }
 
@@ -179,19 +180,18 @@ size_t base64dec(char const* src, size_t raw_length, char* dest)
 	for(; i<quants; i+=4)
 	{
 		size_t n = 3;
-		unsigned v =
-			b64dec_tab[ src[i+0] ] << 18 |
-			b64dec_tab[ src[i+1] ] << 12 |
-			b64dec_tab[ src[i+2] ] << 8 |
-			b64dec_tab[ src[i+3] ];
+		char a = src[i+0], b = src[i+1], c = src[i+2], d = src[i+3];
+		u8 xa = b64dec_tab[ a ], xb = b64dec_tab[ b ], xc = b64dec_tab[ c ], xd = b64dec_tab[ d ];
 
-		if (src[i+3] == '=') { n--; if (src[i+2] == '=') n--; }
+		unsigned v = (unsigned(xa) << 18) | (unsigned(xb) << 12) | (unsigned(xc) << 6) | unsigned(xd);
 
-		*dest++ = u8(v & 0xFF0000 >> 16);
+		if (d == '=') { n--; if (c == '=') n--; }
+
+		*dest++ = u8((v & 0xFF0000u) >> 16);
 		if (n > 1) {
-			*dest++ = u8(v & 0x00FF00 >> 8);
+			*dest++ = u8((v & 0x00FF00u) >> 8);
 			if (n > 2)
-				*dest++ = u8(v & 0x0000FF);
+				*dest++ = u8(v & 0x0000FFu);
 		}
 		result += n;
 	}
@@ -199,21 +199,23 @@ size_t base64dec(char const* src, size_t raw_length, char* dest)
 	if (rem) {
 		unsigned v = 0;
 		unsigned non_pad = 0;
-		for(; i<raw_length; ) {
+		for(; i<4; ++i) {
 			v <<= 6;
-			char c = src[i];
-			if (c != '=') {
-				v |= b64dec_tab[ src[i] ];
-				non_pad++;
+			if (i < raw_length) {
+				char c = src[i];
+				if (c != '=') {
+					v |= b64dec_tab[ c ];
+					non_pad++;
+				}
 			}
 		}
 
-		assert(non_pad <= 3 && "tail should not contain four non-padding characters");
+		assert(non_pad <= 3 && "tail should not contain more than 3 non-padding characters");
 
-		*dest++ = u8(v & 0xFF0000 >> 16);
+		*dest++ = u8((v & 0xFF0000u) >> 16);
 		++result;
 		if (non_pad > 2) {
-			*dest++ = u8(v & 0x00FF00 >> 8);
+			*dest++ = u8((v & 0x00FF00u) >> 8);
 			++result;
 		}
 	}

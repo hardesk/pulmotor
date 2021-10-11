@@ -163,9 +163,9 @@ bool duleb(size_t& s, int& state, u8 v);
 bool duleb(size_t& s, int& state, u16 v);
 bool duleb(size_t& s, int& state, u32 v);
 
-size_t base64enc_length(size_t raw_length);
-void base64enc(char const* src, size_t raw_length, char* dest);
-size_t base64dec_min_length(size_t enc_length);
+size_t base64enc_length(size_t raw_length, bool with_padding = true);
+void base64enc(char const* src, size_t raw_length, char* dest, bool do_pad = true);
+size_t base64dec_length_approx(size_t enc_length);
 size_t base64dec(char const* src, size_t raw_length, char* dest);
 
 std::string dm (char const*);
