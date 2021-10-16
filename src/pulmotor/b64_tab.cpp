@@ -17,15 +17,17 @@ int main(int narg, char** parg) {
 
 	for (int i=0; i<256; ++i) {
 		char const* p = strchr(enc, i);
-		size_t v = 0;
+		size_t v = 0x80;
 
-		if(p==enc+strlen(enc)) v = 0;
+		// 0x40 - skippable
+		// 0x80 - invalid
+		if(p==enc+strlen(enc)) v = 0x80;
 		else if (p) v = p - enc;
 		else if (i=='-') v = 62; // '-' is same as '+'
 		else if (i=='_') v = 63; // '_' is same as '/'
-		else if (i=='=') v = 0;
+		else if (i=='=' || (i>=9 && i<=0x0d) || i==' ' || i==0x85 || i==0xa0) v = 0x40;
 
-		printf("%2d", (int)v);
+		printf("%3d", (int)v);
 		if (dbg)
 			printf(" /* %c*/", (i > 32 && i < 127) || i >= 160 ? i : '?');
 

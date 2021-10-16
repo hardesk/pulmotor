@@ -241,7 +241,27 @@ TEST_CASE("base64")
 	SUBCASE("decode empty")
 	{
 		out[0] = 0x7;
-		size_t rl = util::base64dec("", 0, out);
+		size_t rl = util::base64_decode("", 0, out);
+		CHECK(rl == 0);
+		CHECK(out[0] == 0x7);
+
+		rl = util::base64_decode(" ", 1, out);
+		CHECK(rl == 0);
+		CHECK(out[0] == 0x7);
+
+		rl = util::base64_decode("  ", 2, out);
+		CHECK(rl == 0);
+		CHECK(out[0] == 0x7);
+
+		rl = util::base64_decode("   ", 3, out);
+		CHECK(rl == 0);
+		CHECK(out[0] == 0x7);
+
+		rl = util::base64_decode("    ", 4, out);
+		CHECK(rl == 0);
+		CHECK(out[0] == 0x7);
+
+		rl = util::base64_decode("     ", 5, out);
 		CHECK(rl == 0);
 		CHECK(out[0] == 0x7);
 	}
@@ -254,40 +274,82 @@ TEST_CASE("base64")
 		// { "eQ=", "y" }, // weird case
 		// { "eg", "z" }, // no padding
 
-		{ "eHk=", "xy" }, // padded
-		{ "enc", "zw" }, // not padded
+		// { "eHk=", "xy" }, // padded
+		// { "enc", "zw" }, // not padded
 
-		{ "eHl6", "xyz" },
+		// { "eHl6", "xyz" },
 
-		{ "eHl6dw==", "xyzw" }
+		{ "eHl6dw==", "xyzw" },
+		{ "e\n\nH\nl\n\n\n6d\nw=\n=", "xyzw" },
+		{ "e\t\t\nH\nl\n\n\n6d\nw=\n=", "xyzw" },
+		{ "e\t\nHl  6dw=\n=\n\n", "xyzw" },
+		{ "eg\n\n\n", "z" },
 	};
 
-	SUBCASE("decode va")
+	SUBCASE("decode some")
 	{
+		auto clean_str = [](std::string_view s) {
+			std::string clean;
+			std::copy_if(s.begin(), s.end(),
+				std::back_insert_iterator(clean),
+				[](char a) { return !std::isspace(a); } );
+			return clean;
+		};
 		for (size_t i=0; i<sizeof d / sizeof d[0]; ++i) {
 			size_t enc_len = strlen(d[i].enc);
 			size_t src_len = strlen(d[i].dec);
 
 			// check encode padded
 			memset(out, 0, sizeof out);
-			size_t encoded_len = util::base64enc_length(src_len, true);
-			util::base64enc(d[i].dec, src_len, out, true);
-			if (enc_len % 4 == 0)
-				CHECK( encoded_len == enc_len );
-			CHECK( memcmp(d[i].enc, out, enc_len) == 0);
+			size_t encoded_len = util::base64_encode_length(src_len, util::base64_options::pad);
+			util::base64_encode(d[i].dec, src_len, out, util::base64_options::pad);
+
+			std::string_view enc_sv(d[i].enc, enc_len);
+			if (enc_sv.find_first_of(" \t\n") == std::string_view::npos)
+				CHECK( memcmp(d[i].enc, out, enc_len) == 0);
+			else
+			{
+				std::string clean = clean_str(enc_sv);
+				CHECK( clean.compare( 0, clean.size(), std::string_view(out, encoded_len), 0, clean.size() ) == 0 );
+			}
 
 			// check encode unpadded
 			memset(out, 0, sizeof out);
-			encoded_len = util::base64enc_length(src_len, false);
-			util::base64enc(d[i].dec, src_len, out, false);
+			encoded_len = util::base64_encode_length(src_len, util::base64_options::nopad);
+			util::base64_encode(d[i].dec, src_len, out, util::base64_options::nopad);
+			std::string clean = clean_str(enc_sv);
 			CHECK( encoded_len <= enc_len );
+			CHECK( clean.compare( 0, encoded_len, std::string_view(out, encoded_len) ) == 0 );
 
 			// check decode
 			memset(out, 0, sizeof out);
-			size_t dec_len = util::base64dec(d[i].enc, enc_len, out);
+			size_t dec_len = util::base64_decode(d[i].enc, enc_len, out);
 			CHECK( dec_len == src_len );
 			CHECK( memcmp(d[i].dec, out, dec_len) == 0);
 		}
+	}
+
+	SUBCASE("decode random")
+	{
+		pulmotor::romu3 r;
+
+		static const size_t SIZE = 4 * 256 * 2;
+		size_t ENCODED_SIZE = pulmotor::util::base64_encode_length(SIZE);
+		size_t DECODED_SIZE = pulmotor::util::base64_decode_length_approx(ENCODED_SIZE);
+
+		char* content = new char[SIZE];
+		char* encoded = new char[ENCODED_SIZE];
+		char* decoded = new char[DECODED_SIZE];
+		PULMOTOR_SCOPE_EXIT(&) { delete[] content; delete[] encoded; delete[] decoded; };
+
+		size_t ii = 0;
+		std::generate_n(content,			SIZE / 2, [&ii]() { return ii++ >> 2; });
+		std::generate_n(content + SIZE / 2, SIZE / 2, [&r]() { return r.r(256); });
+
+		pulmotor::util::base64_encode(content, SIZE, encoded, util::base64_options::pad);
+		size_t decoded_size = pulmotor::util::base64_decode(encoded, ENCODED_SIZE, decoded);
+		CHECK(decoded_size == SIZE);
+		CHECK(memcmp(content, decoded, SIZE) == 0);
 	}
 
 }

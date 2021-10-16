@@ -108,119 +108,155 @@ bool duleb(size_t& s, int& state, u8 v) { return duleb_impl(s, state, v); }
 bool duleb(size_t& s, int& state, u16 v) { return duleb_impl(s, state, v); }
 bool duleb(size_t& s, int& state, u32 v) { return duleb_impl(s, state, v); }
 
-size_t base64enc_length(size_t raw_length, bool with_padding) {
+size_t base64_encode_length(size_t raw_length, base64_options opts) {
 	size_t trips = raw_length / 3;
 	size_t rem = raw_length % 3; // 0: 0, 1: 2, 2: 3
-	if (with_padding)
+	if (opts & base64_options::pad)
 		return (trips + (rem != 0)) * 4;
 	else
 		return trips * 4 + (rem == 0 ? 0 : (rem + 1));
 }
 
+// on x64, table based approach is ~7x faster
+#define BASE64_USE_TABLE 1
+static char const b64etab[] =
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef"
+	"ghijklmnopqrstuvwxyz0123456789+/";
+
 constexpr static char base64enc_byte(unsigned value) {
+#if BASE64_USE_TABLE
+	return b64etab[value];
+#else
 	return value < 26 ? 'A' + value
 	     : value < 52 ? 'a' - 26 + value
 		 : value < 62 ? '0' - 52 + value
 		 : value < 63 ? '+' : '/';
+#endif
 }
 
-void base64enc(char const* src, size_t raw_length, char* dest, bool do_pad) {
+void base64_encode(char const* src, size_t raw_length, char* dest, base64_options opts) {
 	size_t mult3 = raw_length / 3 * 3, rem = raw_length % 3, i = 0;
-	for (; i<mult3; i += 3, dest += 4) {
-		unsigned v =
-			unsigned(src[i+0]) << 16 |
-			unsigned(src[i+1]) << 8 |
-			unsigned(src[i+2]);
-		dest[0] = base64enc_byte((v & 0xFC0000) >> 18);
-		dest[1] = base64enc_byte((v & 0x03F000) >> 12);
-		dest[2] = base64enc_byte((v & 0x000FC0) >> 6);
-		dest[3] = base64enc_byte(v & 0x00003F);
+	for (; i<mult3; i += 3) {
+		u8 a=src[i+0], b=src[i+1], c=src[i+2];
+		*dest++ = base64enc_byte(a >> 2);
+		*dest++ = base64enc_byte((a&0x3)<<4 | (b&0xf0)>>4);
+		*dest++ = base64enc_byte((b&0xf)<<2 | (c&0xc0)>>6);
+		*dest++ = base64enc_byte(c&0x3f);
 	}
 
 	if (rem) {
-		unsigned v = unsigned(src[i+0]) << 16;
-		if (rem == 2) v |= unsigned(src[i+1]) << 8;
+		assert (rem != 0 && rem <= 2);
 
-		dest[0] = base64enc_byte((v & 0xFC0000) >> 18);
-		dest[1] = base64enc_byte((v & 0x03F000) >> 12);
-		if (rem == 2) dest[2] = base64enc_byte( (v & 0x000FC0) >> 6); else if (do_pad) dest[2] = '=';
-		if (do_pad) dest[3] = '=';
+		u8 a=src[i+0], b=0;
+		*dest++ = base64enc_byte(a >> 2);
+		if (rem > 1) b=src[i+1];
+		*dest++ = base64enc_byte((a&0x3)<<4 | (b&0xf0)>>4);
+		if (rem == 2) *dest++ = base64enc_byte((b&0xf)<<2); else if (opts & base64_options::pad) *dest++ = '=';
+		if (opts & base64_options::pad) *dest++ = '=';
 	}
 }
 
-size_t base64dec_length_approx(size_t enc_length)
+size_t base64_decode_length_approx(size_t enc_length)
 {
 	return util::align<4>(enc_length) / 4 * 3;
 }
 
 static u8 b64dec_tab[256] =
 {
-	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 62,  0, 62,  0, 63,
-	52, 53, 54, 55, 56, 57, 58, 59, 60, 61,  0,  0,  0,  0,  0,  0,
-	 0,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
-	15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,  0,  0,  0,  0, 63,
-	 0, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
-	41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,  0,  0,  0,  0,  0,
-	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0
+	128, 128, 128, 128, 128, 128, 128, 128, 128,  64,  64,  64,  64,  64, 128, 128,
+	128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
+	 64, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,  62, 128,  62, 128,  63,
+	 52,  53,  54,  55,  56,  57,  58,  59,  60,  61, 128, 128, 128,  64, 128, 128,
+	128,   0,   1,   2,   3,   4,   5,   6,   7,   8,   9,  10,  11,  12,  13,  14,
+	 15,  16,  17,  18,  19,  20,  21,  22,  23,  24,  25, 128, 128, 128, 128,  63,
+	128,  26,  27,  28,  29,  30,  31,  32,  33,  34,  35,  36,  37,  38,  39,  40,
+	 41,  42,  43,  44,  45,  46,  47,  48,  49,  50,  51, 128, 128, 128, 128, 128,
+	128, 128, 128, 128, 128,  64, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
+	128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
+	 64, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
+	128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
+	128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
+	128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
+	128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
+	128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128
 };
 
-size_t base64dec(char const* src, size_t raw_length, char* dest)
+//__attribute((noinline))
+static size_t reload_values(char const* src, size_t& i, size_t len, u8 (&x)[4], base64_options opts) {
+	using namespace pulmotor::lit;
+	size_t q = 0;
+	bool gotAlignment = false;
+	for ( ; i < len && q < 4; ++i) {
+		char c = src[i];
+		if (c == '=') {
+			gotAlignment = true;
+			continue;
+		}
+
+		u8 xx = b64dec_tab[c];
+		if ((xx & 0x40) && (opts & base64_options::skip_whitespace)) // skippable character
+			continue;
+		else if ((xx & 0x80) && !(opts & base64_options::ignore_illegal)) // unexpected/invalid character
+			return base64_invalid;
+		else if (gotAlignment)
+			return q;
+		else
+			x[q++] = xx;
+	}
+	return q;
+}
+
+size_t base64_decode(char const* src, size_t encoded_length, char* dest, base64_options opts)
 {
-	size_t quants = raw_length & ~0x3u, rem = raw_length & 0x3u, i = 0;
-	size_t result = 0;
-	for(; i<quants; i+=4)
-	{
-		size_t n = 3;
-		char a = src[i+0], b = src[i+1], c = src[i+2], d = src[i+3];
-		u8 xa = b64dec_tab[ a ], xb = b64dec_tab[ b ], xc = b64dec_tab[ c ], xd = b64dec_tab[ d ];
+	using namespace pulmotor::lit;
 
-		unsigned v = (unsigned(xa) << 18) | (unsigned(xb) << 12) | (unsigned(xc) << 6) | unsigned(xd);
+	size_t i = 0;
+	size_t n=0;
+	char* o = dest;
+	u8 x[4];
+	for(; i + 3 < encoded_length; ) {
+		char s[4] = { src[i+0], src[i+1], src[i+2], src[i+3] };
+		x[0] = b64dec_tab[ s[0] ];
+		x[1] = b64dec_tab[ s[1] ];
+		x[2] = b64dec_tab[ s[2] ];
+		x[3] = b64dec_tab[ s[3] ];
 
-		if (d == '=') { n--; if (c == '=') n--; }
+		if ( (x[0]|x[1]|x[2]|x[3]) >= 64) {
+			n = reload_values(src, i, encoded_length, x, opts);
+		 	if (n == base64_invalid)
+				break;
+			if (n < 4 && i >= encoded_length) // if we hit the end of the total data, exit loop
+				goto have_data;
+		} else
+			i += 4;
 
-		*dest++ = u8((v & 0xFF0000u) >> 16);
-		if (n > 1) {
-			*dest++ = u8((v & 0x00FF00u) >> 8);
-			if (n > 2)
-				*dest++ = u8(v & 0x0000FFu);
-		}
-		result += n;
+		*o++ = (x[0] << 2) | (x[1] >> 4);
+		*o++ = (x[1] << 4) | (x[2] >> 2);
+		*o++ = (x[2] << 6) | x[3];
 	}
 
-	if (rem) {
-		unsigned v = 0;
-		unsigned non_pad = 0;
-		for(; i<4; ++i) {
-			v <<= 6;
-			if (i < raw_length) {
-				char c = src[i];
-				if (c != '=') {
-					v |= b64dec_tab[ c ];
-					non_pad++;
-				}
-			}
-		}
+	n = 0;
 
-		assert(non_pad <= 3 && "tail should not contain more than 3 non-padding characters");
+have_data:
 
-		*dest++ = u8((v & 0xFF0000u) >> 16);
-		++result;
-		if (non_pad > 2) {
-			*dest++ = u8((v & 0x00FF00u) >> 8);
-			++result;
+	if (i < encoded_length) {
+		assert(n == 0);
+		n = reload_values(src, i, encoded_length, x, opts);
+	}
+	if (n == base64_invalid) return base64_invalid;
+
+	assert(n < 4 && "tail shall contain less than 4 characters");
+
+	if (n) {
+		*o++ = (x[0] << 2) | (x[1] >> 4);
+		if (n > 2) {
+			*o++ = (x[1] << 4) | (x[2] >> 2);
+			if (n > 3)
+				*o++ = (x[2] << 6) | x[3];
 		}
 	}
 
-	return result;
+	return o - dest;
 }
 
 std::string dm (char const* a)

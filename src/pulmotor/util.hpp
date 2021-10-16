@@ -163,10 +163,25 @@ bool duleb(size_t& s, int& state, u8 v);
 bool duleb(size_t& s, int& state, u16 v);
 bool duleb(size_t& s, int& state, u32 v);
 
-size_t base64enc_length(size_t raw_length, bool with_padding = true);
-void base64enc(char const* src, size_t raw_length, char* dest, bool do_pad = true);
-size_t base64dec_length_approx(size_t enc_length);
-size_t base64dec(char const* src, size_t raw_length, char* dest);
+constexpr static const size_t base64_invalid = (size_t)-1LL;
+enum class base64_options : unsigned
+{
+	nopad = 0x0,
+	skip_whitespace = 0x01,
+	ignore_illegal = 0x02,
+	pad = 0x04,
+	// wrap_n = 0x10,
+	// wrap_mask = 0xffff0000
+};
+constexpr inline base64_options operator|(base64_options a, base64_options b) { return base64_options((unsigned)a | (unsigned)b); }
+constexpr inline unsigned operator&(base64_options a, base64_options b) { return (unsigned)a & (unsigned)b; }
+// constexpr inline base64_options base64_options_wrap(unsigned N) { return (base64_options)((N << 16) | (unsigned)base64_options::wrap_n); }
+// constexpr inline unsigned base64_options_get_wrap(base64_options opts) { return (unsigned)opts >> 16; }
+
+size_t base64_encode_length(size_t raw_length, base64_options opts = base64_options::pad);
+void base64_encode(char const* src, size_t raw_length, char* dest, base64_options opts = base64_options::pad);
+size_t base64_decode_length_approx(size_t encoded_length);
+size_t base64_decode(char const* src, size_t encoded_length, char* dest, base64_options opts = base64_options::skip_whitespace);
 
 std::string dm (char const*);
 void hexdump (void const* p, int len);
@@ -204,6 +219,13 @@ private:
 
 template<class F>
 scope_exit(F) -> scope_exit<F>;
+
+#define PULMOTOR_SCOPE_EXIT1(C, ...) \
+	pulmotor::scope_exit x##C = [__VA_ARGS__]()
+
+#define PULMOTOR_SCOPE_EXIT(...) \
+	PULMOTOR_SCOPE_EXIT1(__COUNTER__, __VA_ARGS__)
+
 
 struct text_location
 {
@@ -266,6 +288,13 @@ struct yaml_error : error
 
 PULMOTOR_ATTR_DLL void throw_error(err e, char const* msg, char const* filename, text_location loc);
 PULMOTOR_ATTR_DLL void throw_error(char const* msg, ...);
+
+namespace lit
+{
+constexpr inline std::ptrdiff_t operator"" _z(unsigned long long a) { return std::ptrdiff_t(a); }
+constexpr inline std::size_t operator"" _uz(unsigned long long a) { return std::size_t(a); }
+constexpr inline std::size_t operator"" _zu(unsigned long long a) { return std::size_t(a); }
+}
 
 } // pulmotor
 
