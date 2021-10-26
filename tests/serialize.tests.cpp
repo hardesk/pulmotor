@@ -229,14 +229,6 @@ void test_type<T,CHECKS,Sn,SLn,SSn,LCn,SCn>::check()
 
 } // detect_serialize
 
-
-TEST_CASE("type util")
-{
-	CHECK( (std::is_same<pulmotor::util::arg_i<0, int, float, char>::type, int>::value) == true);
-	CHECK( (std::is_same<pulmotor::util::arg_i<1, int, float, char>::type, float>::value) == true);
-	CHECK( (std::is_same<pulmotor::util::arg_i<2, int, float, char>::type, char>::value) == true);
-}
-
 TEST_CASE("detect")
 {
 	using namespace detect_serialize;

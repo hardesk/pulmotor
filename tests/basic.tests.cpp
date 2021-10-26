@@ -79,6 +79,44 @@ TEST_CASE("map tuple")
 	}
 }
 
+TEST_CASE("type at_i")
+{
+	CHECK( (std::is_same<pulmotor::util::at_i<0, int, float, char>::type, int>::value) == true);
+	CHECK( (std::is_same<pulmotor::util::at_i<1, int, float, char>::type, float>::value) == true);
+	CHECK( (std::is_same<pulmotor::util::at_i<2, int, float, char>::type, char>::value) == true);
+}
+
+TEST_CASE("type list")
+{
+	struct X {};
+	using namespace pulmotor;
+	using l0 = tl::list<>;
+	using l1 = tl::list<int>;
+	using l2 = tl::list<int, float>;
+	using l3 = tl::list<int, float, X>;
+
+	CHECK( (tl::has<int, l0>::value) == false);
+	CHECK( (tl::index<int, l0>::value) == -1u);
+
+	CHECK( (tl::has<int, l1>::value) == true);
+	CHECK( (tl::has<char, l1>::value) == false);
+	CHECK( (tl::index<int, l1>::value) == 0);
+	CHECK( (tl::index<char, l1>::value) == -1u);
+
+	CHECK( (tl::index<int, l2>::value) == 0);
+	CHECK( (tl::index<float, l2>::value) == 1);
+	CHECK( (tl::index<char, l2>::value) == -1u);
+
+	CHECK( (tl::has<int, l3>::value) == true);
+	CHECK( (tl::has<float, l3>::value) == true);
+	CHECK( (tl::has<X, l3>::value) == true);
+	CHECK( (tl::has<char, l3>::value) == false);
+	CHECK( (tl::index<int, l3>::value) == 0);
+	CHECK( (tl::index<float, l3>::value) == 1);
+	CHECK( (tl::index<X, l3>::value) == 2);
+	CHECK( (tl::index<unsigned, l3>::value) == -1u);
+}
+
 TEST_CASE("scoped exit")
 {
 	bool s0 = false, s1 = false, s2 = false, s3 = false, s4 = false;

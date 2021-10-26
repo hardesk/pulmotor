@@ -88,10 +88,13 @@ is_pow(T a)
 template<class T>
 struct fun_traits;
 
-template<size_t I, class T, class... Args> struct arg_ii { using type = typename arg_ii<I-1, Args...>::type; };
-template<class T, class... Args> struct arg_ii<0U, T, Args...> { using type = T; };
-template<size_t I, class... Args> struct arg_i { using type = typename arg_ii<I, Args...>::type; };
-template<size_t I> struct arg_i<I> { using type = void; };
+namespace impl {
+	template<size_t I, class T, class... Args>	struct at_ii { using type = typename at_ii<I-1, Args...>::type; };
+	template<class T, class... Args>			struct at_ii<0U, T, Args...> { using type = T; };
+}
+
+template<size_t I, class... Args> struct at_i { using type = typename impl::at_ii<I, Args...>::type; };
+template<size_t I> 				  struct at_i<I> { using type = void; };
 
 template<class R, class T, class... Args>
 struct fun_traits<R (T::*)(Args...)>
@@ -99,7 +102,7 @@ struct fun_traits<R (T::*)(Args...)>
     static constexpr unsigned arity = sizeof...(Args);
     using return_type = R;
     using class_type = T;
-    template<size_t I> using arg = typename arg_i<I, Args...>::type;
+    template<size_t I> using arg = typename at_i<I, Args...>::type;
 };
 
 template<class R, class... Args>
@@ -107,7 +110,7 @@ struct fun_traits<R (*)(Args...)>
 {
     static constexpr unsigned arity = sizeof...(Args);
     using return_type = R;
-    template<size_t I> using arg = typename arg_i<I, Args...>::type;
+    template<size_t I> using arg = typename at_i<I, Args...>::type;
 };
 
 
@@ -189,6 +192,30 @@ void hexdump (void const* p, int len);
 size_t write_file (path_char const* name, u8 const* ptr, size_t size);
 
 } // util
+
+namespace tl {
+
+template<class... Ts> struct list { };
+
+template<class... Ts> struct index_impl;
+template<class T, class U, class... Ts> struct index_impl<T, U, Ts...> {
+	static constexpr size_t found_index = 1 + index_impl<T, Ts...>::value;
+	static constexpr size_t value = found_index > sizeof...(Ts) ? -1u : found_index;
+};
+
+template<class T, class... Ts> struct index_impl<T, T, Ts...>
+	: std::integral_constant<size_t, 0U> {};
+template<class T> struct index_impl<T>
+	: std::integral_constant<size_t, -1u> {};
+
+template<class... Ts> struct index;
+template<class T, class... Ts> struct index<T, list<Ts...>> : index_impl<T, Ts...> {};
+
+template<class... T> struct has;
+template<class T, class... Ts> struct has<T, list<Ts...>>
+	: std::integral_constant<bool, (std::is_same_v<T, Ts> || ...) > {};
+
+}
 
 template<class F>
 struct scope_exit
