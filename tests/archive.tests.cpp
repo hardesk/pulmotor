@@ -423,3 +423,78 @@ TEST_CASE("size packing")
 		CHECK(TC(3, b) == ss);
 	}
 }
+
+namespace
+{
+	struct set_one : mod_op<set_one> {
+		template<class Ar, class Ctx> void operator()(Ar& ar, Ctx& ctx) {
+			ctx.one = 1;
+		}
+	};
+	struct set_value : mod_op<set_value> {
+		unsigned m_value;
+		set_value(unsigned v) : m_value(v) {}
+		set_value(set_value const&) = default;
+		template<class Ar, class Ctx> void operator()(Ar& ar, Ctx& ctx) {
+			ctx.value = m_value;
+		}
+	};
+	struct arch0 {
+	};
+	struct arch1 {
+		struct context { unsigned one = 0; unsigned value = 0; };
+		using supported_mods = tl::list<set_one>;
+	};
+	struct arch2 {
+		struct context { unsigned one = 0; unsigned value = 0; };
+		using supported_mods = tl::list<set_one, set_value>;
+	};
+	struct arch3 {
+		struct supports_kv {};
+		struct context { char const* key; unsigned one = 0; unsigned value = 0; };
+		using supported_mods = tl::list<set_one, set_value>;
+	};
+}
+
+TEST_CASE("mods test")
+{
+	SUBCASE("type check")
+	{
+		CHECK(has_supported_mods<arch0>::value == false);
+		CHECK(has_supported_mods<arch1>::value == true);
+		CHECK(has_supported_mods<arch2>::value == true);
+
+		CHECK(supports_kv<arch2>::value == false);
+		CHECK(supports_kv<arch3>::value == true);
+	}
+
+	SUBCASE("none")
+	{
+		auto ml = 10 * set_one();
+		arch0 a0;
+		apply_mod_list(a0, a0, ml);
+	}
+
+	SUBCASE("applies")
+	{
+		auto ml = 10 * set_one() * set_value(2);
+		SUBCASE("1")
+		{
+			arch1 a;
+			arch1::context ctx;
+			apply_mod_list(a, ctx, ml);
+			CHECK(ctx.one == 1);
+			CHECK(ctx.value == 0);
+		}
+
+		SUBCASE("2")
+		{
+			arch2 a;
+			arch2::context ctx;
+			apply_mod_list(a, ctx, ml);
+			CHECK(ctx.one == 1);
+			CHECK(ctx.value == 2);
+		}
+	}
+
+}

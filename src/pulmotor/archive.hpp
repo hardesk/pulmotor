@@ -66,7 +66,58 @@ struct archive
 template<class T>
 struct is_archive_if : std::enable_if<std::is_base_of<archive, T>::value, T> {};
 
+template<class Ar, class = void> struct has_supported_mods : std::false_type {};
+template<class Ar>				 struct has_supported_mods<Ar, std::void_t<typename Ar::supported_mods> > : std::true_type {};
+
+template<class Ar, class = void> struct supports_kv : std::false_type {};
+template<class Ar>				 struct supports_kv<Ar, std::void_t<typename Ar::supports_kv> > : std::true_type {};
+
 extern char null_32[32];
+
+template<class Derived> struct mod_op { using type = Derived; };
+
+template<class T, class... Ops>
+struct mod_list : std::tuple<Ops...> {
+	T const& v;
+	mod_list(T const& v, std::tuple<Ops...> const& a) : v(v), std::tuple<Ops...>(a) {}
+};
+
+template<class T> struct is_mod_list : std::false_type { };
+template<class T, class... Ops> struct is_mod_list<mod_list<T, Ops...>> : std::true_type { };
+
+template<class T, class Op>
+mod_list<T, Op> operator*(T const& v, mod_op<Op> const& op) {
+	return mod_list<T, Op>(v, std::tuple<Op>(static_cast<Op const&>(op)));
+}
+
+template<class T, class Op, class... Ops>
+mod_list<T, Ops..., Op> operator*(mod_list<T, Ops...> const& ops, mod_op<Op> const& op) {
+	auto op_tup = std::make_tuple(static_cast<Op const&>(op));
+	std::tuple<Ops...> const& ops_tup = static_cast<std::tuple<Ops...> const&>(ops);
+	return mod_list<T, Ops..., Op>(ops.v, std::tuple_cat(ops_tup, op_tup));
+}
+
+template<class Ar, class Context, class T, class... Ops>
+void apply_mod_list(Ar& ar, Context& ctx, mod_list<T, Ops...> const& ops) {
+	if constexpr (has_supported_mods<Ar>::value)
+		pulmotor::util::map( [&ar, &ctx](auto op) {
+			using op_t = decltype(op);
+				if constexpr( Ar::supported_mods::template has< typename op_t::type >::value )
+					op(ar, ctx);
+		}, ops);
+}
+
+struct mod_base64 : mod_op<mod_base64> {
+	template<class Ar, class Context>
+	void operator()(Ar& ar, Context& ctx) { ctx.flags |= 0; }
+};
+
+struct mod_wrap : mod_op<mod_wrap> {
+	int width;
+	template<class Ar, class Context>
+	void operator()(Ar& ar, Context& ctx) { ctx.wrap = width; }
+};
+
 
 template<class Derived>
 struct archive_write_util
