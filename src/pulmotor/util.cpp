@@ -334,6 +334,15 @@ void throw_error(char const* msg, ...)
 #endif
 }
 
+std::string ssprintf(char const* msg, ...)
+{
+	va_list vl;
+	va_start(vl, msg);
+	char buf[512];
+	snprintf(buf, sizeof buf, msg, vl);
+	va_end(vl);
+	return buf;
+}
 
 void location_map::analyze()
 {

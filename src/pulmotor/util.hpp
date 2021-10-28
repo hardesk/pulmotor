@@ -195,25 +195,27 @@ size_t write_file (path_char const* name, u8 const* ptr, size_t size);
 
 namespace tl {
 
-template<class... Ts> struct list { };
+namespace impl {
 
 template<class... Ts> struct index_impl;
-template<class T, class U, class... Ts> struct index_impl<T, U, Ts...> {
-	static constexpr size_t found_index = 1 + index_impl<T, Ts...>::value;
-	static constexpr size_t value = found_index > sizeof...(Ts) ? -1u : found_index;
-};
+template<class T> struct index_impl<T> : std::integral_constant<size_t, 0> {};
+template<class T, class... Ts> struct index_impl<T, T, Ts...> : std::integral_constant<size_t, 0U> {};
+template<class T, class U, class... Ts> struct index_impl<T, U, Ts...> : std::integral_constant<size_t, 1 + index_impl<T, Ts...>::value> {};
 
-template<class T, class... Ts> struct index_impl<T, T, Ts...>
-	: std::integral_constant<size_t, 0U> {};
-template<class T> struct index_impl<T>
-	: std::integral_constant<size_t, -1u> {};
+} // impl
 
-template<class... Ts> struct index;
-template<class T, class... Ts> struct index<T, list<Ts...>> : index_impl<T, Ts...> {};
+template<class... Ts> struct list {
 
-template<class... T> struct has;
-template<class T, class... Ts> struct has<T, list<Ts...>>
-	: std::integral_constant<bool, (std::is_same_v<T, Ts> || ...) > {};
+	template<class T> using append = list<Ts..., T>;
+	template<class T> using prepend = list<T, Ts...>;
+	template<class T> using index = std::integral_constant<size_t, impl::index_impl<T, Ts...>::value>;
+	template<class T> using has = std::integral_constant<bool, (std::is_same_v<T, Ts> || ...)>;
+	using size = std::integral_constant<size_t, sizeof...(Ts)>;
+
+ };
+
+template<class T, class L> using has = typename L::template has<T>;
+template<class T, class L> using index = typename L::template index<T>;
 
 }
 
@@ -259,6 +261,15 @@ struct text_location
 {
 	unsigned line, column;
 	bool operator==(text_location const&) const = default;
+};
+
+struct full_location : text_location
+{
+	char const* name;
+	full_location() : text_location{0,0}, name(nullptr) {}
+	full_location(char const* name, unsigned line, unsigned col) : text_location{line, col}, name(name) {}
+	full_location(char const* name, text_location const& l) : text_location{l.line, l.column}, name(name) {}
+	bool operator==(full_location const&) const = default;
 };
 
 struct location_map
@@ -312,12 +323,11 @@ struct yaml_error : error
 	{}
 };
 
-
-
 #endif
 
 PULMOTOR_ATTR_DLL void throw_error(err e, char const* msg, char const* filename, text_location loc);
 PULMOTOR_ATTR_DLL void throw_error(char const* msg, ...);
+PULMOTOR_ATTR_DLL std::string ssprintf(char const* msg, ...);
 
 namespace lit
 {

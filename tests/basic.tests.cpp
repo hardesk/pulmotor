@@ -96,16 +96,16 @@ TEST_CASE("type list")
 	using l3 = tl::list<int, float, X>;
 
 	CHECK( (tl::has<int, l0>::value) == false);
-	CHECK( (tl::index<int, l0>::value) == -1u);
+	CHECK( (tl::index<int, l0>::value) >= 0);
 
 	CHECK( (tl::has<int, l1>::value) == true);
 	CHECK( (tl::has<char, l1>::value) == false);
 	CHECK( (tl::index<int, l1>::value) == 0);
-	CHECK( (tl::index<char, l1>::value) == -1u);
+	CHECK( (tl::index<char, l1>::value) >= 1);
 
 	CHECK( (tl::index<int, l2>::value) == 0);
 	CHECK( (tl::index<float, l2>::value) == 1);
-	CHECK( (tl::index<char, l2>::value) == -1u);
+	CHECK( (tl::index<char, l2>::value) >= 2);
 
 	CHECK( (tl::has<int, l3>::value) == true);
 	CHECK( (tl::has<float, l3>::value) == true);
@@ -114,7 +114,7 @@ TEST_CASE("type list")
 	CHECK( (tl::index<int, l3>::value) == 0);
 	CHECK( (tl::index<float, l3>::value) == 1);
 	CHECK( (tl::index<X, l3>::value) == 2);
-	CHECK( (tl::index<unsigned, l3>::value) == -1u);
+	CHECK( (tl::index<unsigned, l3>::value) >= 3);
 }
 
 TEST_CASE("scoped exit")
