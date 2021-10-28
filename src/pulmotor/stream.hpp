@@ -157,6 +157,7 @@ public:
 fs_t file_size (pulmotor::path_char const* file_name, std::error_code& ec);
 inline fs_t file_size (pulmotor::path_char const* file_name) { std::error_code ec; fs_t s = file_size(file_name, ec); return ec ? 0 : s; }
 
-}
+} // pulmotor
 
 #endif // PULMOTOR_CONTAINER_HPP_
+

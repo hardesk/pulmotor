@@ -67,7 +67,7 @@ std::string abi_demangle(char const* mangled)
 
 // encode: if don't fit into container (eg. 31bit), set hibit and store the rest as value (eg. 31bit)
 template<class T>
-inline size_t euleb_impl(size_t s, T* o) {
+inline size_t euleb_impl(size_t quantity, T* o) {
 
 	static_assert(std::is_unsigned<T>::value, "T must be unsigned");
 
@@ -77,18 +77,18 @@ inline size_t euleb_impl(size_t s, T* o) {
 	constexpr unsigned vbits = nl::digits - 1;
 	constexpr T hmask = 1U << vbits;
 	do {
-		o[i] = T(s);
-		if ((s >>= vbits))
+		o[i] = T(quantity);
+		if ((quantity >>= vbits))
 			o[i] |= hmask;
 		++i;
-	} while(s);
+	} while(quantity);
 
 	return i;
 }
 
 // decode: if hibit set, set it to 0 and expect another word
 template<class T>
-inline bool duleb_impl(size_t& s, int& state, T v) {
+inline bool duleb_impl(size_t& quantity, int& state, T v) {
 
 	static_assert(std::is_unsigned<T>::value, "T must be unsigned");
 
@@ -97,7 +97,7 @@ inline bool duleb_impl(size_t& s, int& state, T v) {
 	constexpr T hmask = 1U << vbits;
 
 	size_t ss = v & ~hmask;
-	s |= ss << (state++ * vbits);
+	quantity |= ss << (state++ * vbits);
 	return (v & hmask) != 0;
 }
 
@@ -315,10 +315,7 @@ void throw_error(err e, char const* msg, char const* filename, text_location loc
 #if PULMOTOR_EXCEPTIONS
 	throw yaml_error(e, msg, loc, filename);
 #else
-	va_list vl;
-	va_start(vl, loc);
-	vprintf("%s:%d:%d: error(%d): %s\n, filename, loc.line, loc.col, (int)e, msg);
-	va_end(vl);
+	vprintf("%s:%d:%d: error(%d): %s\n", filename, (int)loc.line, (int)loc.col, (int)e, msg);
 #endif
 }
 

@@ -50,7 +50,7 @@ PULMOTOR_BN(char32_t)
 
 
 template<class T>
-inline typename std::enable_if<std::is_unsigned<T>::value, T>::type
+constexpr inline typename std::enable_if<std::is_unsigned<T>::value, T>::type
 align(T offset, size_t al)
 {
 	T mask = al-1U;
@@ -58,7 +58,7 @@ align(T offset, size_t al)
 }
 
 template<int Alignment, class T>
-inline typename std::enable_if<std::is_unsigned<T>::value, T>::type
+constexpr inline typename std::enable_if<std::is_unsigned<T>::value, T>::type
 align (T off)
 {
 	assert (Alignment > 0 && (Alignment & (Alignment-1)) == 0);
@@ -66,20 +66,20 @@ align (T off)
 }
 
 template<class T>
-inline typename std::enable_if<std::is_integral<T>::value, bool>::type
+constexpr inline typename std::enable_if<std::is_integral<T>::value, bool>::type
 is_aligned(T offset, size_t align)
 {
 	return (offset & (align-1U)) == 0;
 }
 
-inline size_t pad(size_t offset, size_t align)
+constexpr inline size_t pad(size_t offset, size_t align)
 {
 	size_t a = offset & (align-1);
 	return a == 0 ? 0 : (align - a);
 }
 
 template<class T>
-inline typename std::enable_if<std::is_integral<T>::value, bool>::type
+constexpr inline typename std::enable_if<std::is_integral<T>::value, bool>::type
 is_pow(T a)
 {
 	return a && !(a & (a-1U));
@@ -136,6 +136,7 @@ inline auto map_impl(F&& f, Tuple&& tup, std::index_sequence<Is...>)
 		return std::tuple( f(std::get<Is>(tup))... );
 }
 
+// basically `map' calls f on each of the tuple elements and returns a tuple with return values
 template<class F, class... Args>
 auto map(F&& f, std::tuple<Args...> const& tup)
 {
@@ -148,13 +149,12 @@ auto map(F&& f, std::tuple<Args...>& tup)
 	return map_impl( std::forward<F>(f), tup, std::make_index_sequence<sizeof...(Args)>());
 }
 
-
-template<class S, class Q>
+template<class Store, class Quantity>
 struct euleb_count
 {
-	constexpr static unsigned Sbits = sizeof(S)*8;
-	constexpr static unsigned Qbits = sizeof(Q)*8;
-	static_assert(Sbits < Qbits);
+	constexpr static unsigned Sbits = sizeof(Store)*8;
+	constexpr static unsigned Qbits = sizeof(Quantity)*8;
+	static_assert(Sbits <= Qbits);
 
 	enum : unsigned { value = (Qbits%Sbits) == 0 ? Qbits/Sbits : Qbits/Sbits+1 };
 };
@@ -223,11 +223,12 @@ struct scope_exit
 	scope_exit(F&& f)
 		noexcept( std::is_nothrow_copy_constructible<F>::value )
 		: fun( std::forward<std::decay_t<F>>(f) )
-		{}
+	{}
 	scope_exit(scope_exit<F>&& a)
 		noexcept( std::is_nothrow_move_constructible<F>::value )
-		: fun(std::move(a.fun)), suspended(a.suspended)
-		{ a.suspended = true; }
+		: fun(std::move(a.fun)), suspended(a.suspended) {
+			a.suspended = true;
+	}
 	~scope_exit() noexcept {
 		if (!suspended)
 			fun();
@@ -290,8 +291,10 @@ enum err
 	err_bad_stream,
 	err_unexpected_value_type,
 	err_key_not_found,
-	err_value_out_of_range
+	err_value_out_of_range,
+	err_invalid_value
 };
+
 struct error : std::runtime_error
 {
 	error(err c, std::string const& msg) : std::runtime_error(msg), code(c) {}

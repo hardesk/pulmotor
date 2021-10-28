@@ -510,7 +510,7 @@ public:
 		written_ += written;
 	}
 
-	void write_data (void* src, size_t size)
+	void write_data (void const* src, size_t size)
 	{
 		if (ec)
 			return;
@@ -578,7 +578,7 @@ public:
 		m_actual_arch.template write_basic<Align> (data);
 	}
 
-	void write_data (void* src, size_t size)
+	void write_data (void const* src, size_t size)
 	{
 		char buf[128];
 		snprintf (buf, sizeof(buf), "%*s0x%08x data, %d bytes (%7.1fkB)\n", m_indent*2, "",
@@ -631,14 +631,12 @@ public:
 	std::error_code ec;
 
 	template<class T>
-	void write_basic (T const& data)
-	{
+	void write_basic (T const& data) {
 		sink_.write(&data, sizeof(data), ec);
 		written_ += sizeof data;
 	}
 
-	void write_data (void const* src, size_t size)
-	{
+	void write_data (void const* src, size_t size) {
 		sink_.write (src, size, ec);
 		written_ += size;
 	}
@@ -665,7 +663,7 @@ struct archive_vector_out
 		data.insert(data.end(), p, p + sizeof(a));
 	}
 
-	void write_data(void* src, size_t size) {
+	void write_data(void const* src, size_t size) {
 		data.insert(data.end(), (char const*)src, (char const*)src + size);
 	}
 
@@ -692,7 +690,9 @@ struct archive_vector_in
 	}
 
 	void advance(size_t s) { m_offset += s; }
-	void read_data(void* src, size_t size) { memcpy(src, data.data() + m_offset, size); m_offset += size; }
+	void read_data(void* src, size_t size) {
+		memcpy(src, data.data() + m_offset, size); m_offset += size;
+	}
 
 	std::string str() const { return std::string(data.data(), data.size()); }
 };

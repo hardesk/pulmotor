@@ -240,4 +240,4 @@ fs_t file_size (pulmotor::path_char const* file_name, std::error_code& ec)
 	return 0;
 }
 
-}
+} // pulmotor

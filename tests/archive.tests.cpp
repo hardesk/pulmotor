@@ -58,7 +58,7 @@ struct multi_archive_out : public archive, archive_write_util<multi_archive_out<
 		m_offset += sizeof a;
 	}
 
-	void write_data(void* src, size_t size) {
+	void write_data(void const* src, size_t size) {
 		util::map( [src, size] (auto& ar) { ar.write_data(src, size); }, m_archs);
 		m_offset += size;
 	}
@@ -119,7 +119,7 @@ struct multi_state
 		archive_vector_out ar_vec;
 		write_state() : ssink(ss), ar_sink(ssink), ar_vec() {}
 	};
-	
+
 	struct read_state {
 		std::stringstream ss1, ss2;
 		std::unique_ptr<source_istream> s_is;
@@ -223,7 +223,7 @@ TEST_CASE("pulmotor archive")
 
 		char DAT[2] = { 'A', 'X' };
 
-		SUBCASE("whole") 
+		SUBCASE("whole")
 		{
 			source_buffer sb(DAT, 2);
 			archive_whole ar(sb);
@@ -234,7 +234,7 @@ TEST_CASE("pulmotor archive")
 			CHECK(x == DAT[1]);
 		}
 
-		SUBCASE("chunked") 
+		SUBCASE("chunked")
 		{
 			source_buffer sb(DAT, 2);
 			archive_chunked ar(sb);
@@ -245,7 +245,7 @@ TEST_CASE("pulmotor archive")
 			CHECK(x == DAT[1]);
 		}
 
-		SUBCASE("stream") 
+		SUBCASE("stream")
 		{
 			std::stringstream ss(std::string(DAT, 2));
 			source_istream si(ss);
@@ -261,7 +261,7 @@ TEST_CASE("pulmotor archive")
 	SUBCASE("multi write")
 	{
 		multi_state ms;
-		
+
 		multi_state::out_arch_t ar = ms.begin_write();
 		ar.write_basic((unsigned char)'A');
 		ar.write_basic((unsigned char)'X');

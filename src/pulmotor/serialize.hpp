@@ -232,7 +232,7 @@ alloc(T*& p, AF const& af, DF const& df)
 	return alloc_t<bare, AF, deallocate_holder<bare, DF>>{&p, af, deallocate_holder<bare, DF>{df}};
 }
 
-template<class T>			struct base_t { using type = T; T* p; };
+template<class T>			struct base_t { using base_type = T; T* p; };
 template<class T = void>	struct is_base : std::false_type {};
 template<class T>			struct is_base<base_t<T>> : std::true_type {};
 template<class B, class T>
