@@ -1,6 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
-#include <doctest/doctest.h>
+#include <doctest.h>
 #include <pulmotor/archive.hpp>
+#include <pulmotor/binary_archive.hpp>
 
 using namespace pulmotor;
 static romu3 r3;
@@ -40,13 +41,14 @@ struct ar_check
 	}
 };
 
+/*
 template<class... Archs>
 struct multi_archive_out : public archive, archive_write_util<multi_archive_out<Archs...>>
 {
 	std::tuple<Archs&...> m_archs;
 	fs_t m_offset = 0;
 
-	multi_archive_out(Archs&... archs) : m_archs(std::forward_as_tuple(archs...)) {}
+	multi_archive_out(unsigned flags, Archs&... archs) : m_archs(std::forward_as_tuple(archs...)), archive_write_util<multi_archive_out<Archs...>>(flags) {}
 	multi_archive_out(multi_archive_out&&) = default;
 
 	enum { is_reading = false, is_writing = true };
@@ -155,7 +157,7 @@ struct multi_state
 	out_arch_t begin_write() {
 		ws_ = std::move(std::make_unique<write_state>());
 		rs_.reset();
-		return out_arch_t(ws_->ar_sink, ws_->ar_vec);
+		return out_arch_t(0, ws_->ar_sink, ws_->ar_vec);
 	}
 
 	in_arch_t read_written1() {
@@ -163,7 +165,7 @@ struct multi_state
 		return in_arch_t(*rs_->ar_whole, *rs_->ar_chunked, *rs_->ar_istream_source, *rs_->ar_istream);
 	}
 };
-
+*/
 template<class Tuple, size_t... Is>
 void print_tuple_impl( Tuple&& a, std::index_sequence<Is...> )
 {
@@ -177,10 +179,14 @@ void print_tuple( std::tuple<Args...>&& a )
 	print_tuple_impl( a, std::make_index_sequence<sizeof...(Args)>() );
 }
 
-
+void serialize_test1(pulmotor::archive_sink& ar, std::string const& s);
 
 TEST_CASE("pulmotor archive")
 {
+	pulmotor::sink_ostream ss(std::cout);
+	pulmotor::archive_sink as(ss);
+	serialize_test1(as, "hello");
+
 	SUBCASE("print tuple")
 	{
 		print_tuple( std::tuple<int>{ 10 } );
@@ -258,6 +264,7 @@ TEST_CASE("pulmotor archive")
 		}
 	}
 
+/*
 	SUBCASE("multi write")
 	{
 		multi_state ms;
@@ -273,7 +280,7 @@ TEST_CASE("pulmotor archive")
 
 		CHECK(a == 'A');
 		CHECK(x == 'X');
-	}
+	}*/
 
 	SUBCASE("write block")
 	{

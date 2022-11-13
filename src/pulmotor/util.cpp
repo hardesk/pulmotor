@@ -181,13 +181,13 @@ static u8 b64dec_tab[256] =
 	128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128
 };
 
-//__attribute((noinline))
+//PULMOTOR_NOINLINE
 static size_t reload_values(char const* src, size_t& i, size_t len, u8 (&x)[4], base64_options opts) {
 	using namespace pulmotor::lit;
 	size_t q = 0;
 	bool gotAlignment = false;
 	for ( ; i < len && q < 4; ++i) {
-		char c = src[i];
+		u8 c = (u8)src[i];
 		if (c == '=') {
 			gotAlignment = true;
 			continue;
@@ -215,7 +215,7 @@ size_t base64_decode(char const* src, size_t encoded_length, char* dest, base64_
 	char* o = dest;
 	u8 x[4];
 	for(; i + 3 < encoded_length; ) {
-		char s[4] = { src[i+0], src[i+1], src[i+2], src[i+3] };
+		u8 s[4] = { (u8)src[i+0], (u8)src[i+1], (u8)src[i+2], (u8)src[i+3] };
 		x[0] = b64dec_tab[ s[0] ];
 		x[1] = b64dec_tab[ s[1] ];
 		x[2] = b64dec_tab[ s[2] ];
@@ -344,6 +344,15 @@ std::string ssprintf(char const* msg, ...)
 	return buf;
 }
 
+location_map::location_map(char const* start, size_t len)
+:	m_start(start), m_size(len)
+{
+}
+
+location_map::~location_map()
+{
+}
+
 void location_map::analyze()
 {
 	m_lookup.clear();
@@ -438,6 +447,5 @@ location_map::lookup(size_t offset) {
 		search_start = nl + 1;
 	} while (true);
 }
-
 
 } // pulmotor

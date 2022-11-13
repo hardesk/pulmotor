@@ -29,37 +29,36 @@ typedef std::string path_string;
 typedef u64 fs_t;
 
 enum { header_size = 8 };
-enum : unsigned
+enum : u16
 {
-	version_dont_track			= 0xffff'ffffu,
-	no_version					= 0xffff'ffffu, // value that is transformed into ver_flag_no_version
+	version_dont_track			= 0xffffu, // depracated
+	no_version					= 0xffffu, // value that is transformed into ver_flag_no_version
 	version_default				= 0u,
 
 	// object pointer was null when writing
-	ver_flag_null_ptr			= 0x8000'0000u,
+	ver_flag_null_ptr			= 0x8000u,
 
-	// u32 follows 'version' that specifies how much to advance stream (this u32 not included) to get to object data
+	// vu follows 'version' that specifies how much to advance stream (this u32 not included) to get to object data
 	// in other words how much unknown information is between the version and object
-	ver_flag_garbage_length		= 0x4000'0000u,
+	ver_flag_garbage_length		= 0x4000u,
 
 	// arbitraty "debug" string is present after (optional garbage length)
-	ver_flag_debug_string		= 0x2000'0000u,
+	ver_flag_debug_string		= 0x2000u,
 	ver_debug_string_max_size	= 0x100u,
 
 	// align object (except primitive types) on an alignment address specified by archive
-	ver_flag_align_object		= 0x1000'0000u,
+	ver_flag_align_object		= 0x1000u,
 
 	// set if object was serialized using "wants-construct == true"
-	ver_flag_wants_construct	= 0x0100'0000u,
+	ver_flag_wants_construct	= 0x0200u,
 
 	// class is configured not to store the version into file
-	ver_flag_no_version			= 0x0200'0000u,
+	ver_flag_no_version			= 0x0100u,
 
 	// mask to get only the version part
-	ver_mask					= 0x00ff'ffffu,
-	ver_mask_bits				= 24
+	ver_mask					= 0x00ffu,
+	ver_mask_bits				= 8
 };
-
 
 struct target_traits
 {
@@ -81,21 +80,36 @@ template<class T>               struct has_version_member<T, std::void_t<char [(
 
 template<class T> struct class_version { static unsigned constexpr value = version_default; };
 
-template<class T, class = void> struct get_meta : std::integral_constant<unsigned,
-	(unsigned)class_version<T>::value == (unsigned)no_version ? (unsigned)ver_flag_no_version|0u : (unsigned)class_version<T>::value> {};
-template<class T>               struct get_meta<T, std::void_t< decltype(T::version) > > : std::integral_constant<unsigned,
-	(unsigned)T::version == (unsigned)no_version ? (unsigned)ver_flag_no_version|0u : (unsigned)T::version> {};
+template<class T, class = void>
+struct get_meta : std::integral_constant<unsigned,
+	(unsigned)class_version<T>::value == (unsigned)no_version
+		? (unsigned)ver_flag_no_version|0u
+		: (unsigned)class_version<T>::value>
+{};
+template<class T>
+struct get_meta<T, std::void_t< decltype(T::version) > > : std::integral_constant<unsigned,
+	(unsigned)T::version == (unsigned)no_version
+		? (unsigned)ver_flag_no_version|0u
+		: (unsigned)T::version>
+{};
 
 #define PULMOTOR_VERSION(T, v) template<> struct ::pulmotor::class_version<T> { enum { value = v }; }
 
+struct romu3;
+struct romu_q32;
+
+unsigned rand_range(romu3& rnd, unsigned range);
+unsigned rand_range(romu_q32& rnd, unsigned range);
+
 struct romu3
 {
-	typedef uint64_t result_type;
+	using result_type = uint64_t;
 	constexpr static result_type min() { return 0; }
 	constexpr static result_type max() { return UINT64_MAX; }
 
 	#define PULMOTOR_ROTL(d,lrot) ((d<<(lrot)) | (d>>(8*sizeof(d)-(lrot))))
 	uint64_t xState=0xe2246698a74e50e0ULL, yState=0x178cd4541df4e31cULL, zState=0x704c7122f9cfbd76ULL;
+
 	void seed(uint64_t a, uint64_t b,uint64_t c) { xState=a; yState=b; zState=c; }
 	void reset() { *this = romu3(); }
 	uint64_t operator() () {
@@ -105,34 +119,129 @@ struct romu3
 		zState = zp - yp;  zState = PULMOTOR_ROTL(zState,44);
 		return xp;
 	}
-	// [ 0; range [
-	unsigned r(unsigned range) { return uint64_t(unsigned(operator()())) * range >> sizeof (unsigned)*8; }
-	// [ 0; range [
-	uint64_t r64(uint64_t range) { using z = unsigned __int128; return uint64_t( z(operator()()) * range >> sizeof (uint64_t)*8 ); }
+
+	unsigned range(unsigned mx) { return rand_range(*this, mx); }
+};
+
+struct romu_q32
+{
+	u32 state[4];
+
+	using result_type = u32;
+
+	constexpr static result_type min() { return 0; }
+	constexpr static result_type max() { return UINT32_MAX; }
+
+	constexpr void seed(u32 w, u32 x, u32 y, u32 z) {
+		state[0] = w;
+		state[1] = x;
+		state[2] = y;
+		state[3] = z;
+	}
+
+	constexpr void init() {
+		seed(0xdbf64230, 0x9c248ed8, 0x6a11e8b8, 0x9bca720f);
+	}
+
+	constexpr u32 operator()() {
+		uint32_t wp = state[0], xp = state[1], yp = state[2], zp = state[3];
+		state[0] = 3323815723u * zp;  // a-mult
+		state[1] = zp + PULMOTOR_ROTL(wp,26);  // b-rotl, c-add
+		state[2] = yp - xp;           // d-sub
+		state[3] = yp + wp;           // e-add
+		state[3] = PULMOTOR_ROTL(state[3],9);    // f-rotl
+		return xp;
+	}
+
+	unsigned range(unsigned mx) { return rand_range(*this, mx); }
+};
+
+struct object_meta
+{
+	object_meta() : flags_and_version(0) {}
+	object_meta(unsigned flags_and_ver) : flags_and_version(flags_and_ver) {}
+	object_meta(object_meta const&) = default;
+	object_meta& operator=(object_meta const&) = default;
+
+	unsigned version() const { return flags_and_version & ver_mask; }
+	unsigned is_nullptr() const { return flags_and_version & ver_flag_null_ptr; }
+	bool include_version() const { return (flags_and_version & ver_flag_no_version) == 0; }
+	void set_version(unsigned ver) { flags_and_version = (flags_and_version&~ver_mask) | (ver&ver_mask); }
+
+	operator unsigned() const { return flags_and_version & ver_mask; }
+
+private:
+	unsigned flags_and_version; // version and flags
 };
 
 template<class T>
 struct nv_t
 {
-	char const* name;
-	T const& obj;
+	using value_type = T;
 
-	nv_t(char const* name_, T const& o) : name(name_), obj(o) {}
-	nv_t(nv_t const& o) : name(o.name), obj(o.obj) {}
+	char const* name;
+	T& obj;
+	size_t name_length;
+
+	nv_t(char const* name_, size_t namelength, T const& o)
+		: name(name_), name_length(namelength), obj(const_cast<T&>(o))
+		{}
+	nv_t(nv_t const& o) = default;
 };
 
 template<class T>
-inline nv_t<T> nv(char const* name, T const& o)
-{
-	return nv_t<T> (name, o);
-}
+inline nv_t<T> nvl( char const* name, T const& a) { return nv_t<T>(name, strlen(name), a); }
 
-#define PULMOTOR_iPSTR(x) #x
-#define PULMOTOR_PSTR(x) PULMOTOR_iPSTR(x)
-#define PULMOTOR_iPCAT(m, x) m ## x
-#define PULMOTOR_PCAT(m, x) PULMOTOR_iPCAT(m, x)
-#define PULMOTOR_iPSIZE(a, b, c, d, e, f, g, h, size, ...) size
-#define PULMOTOR_PSIZE(...) PULMOTOR_iPSIZE(__VA_ARGS__, 8, 7, 6, 5, 4, 3, 2, 1, 0)
+template<class T, size_t N>
+inline nv_t<T> nv( char const (&name)[N], T const& a) { return nv_t<T>(name, N, a); }
+
+template<class T>
+struct is_nv : std::false_type {};
+
+template<class T>
+struct is_nv<nv_t<T>> : std::true_type {};
+
+template<class T, class D>	struct delete_holder		 { void de(T* p) const { d(p); } D const& d; };
+template<class T> 			struct delete_holder<T,void> { void de(T*) const { } };
+
+template<class T, class C, class D = delete_holder<T, void> >
+struct ctor : D
+{
+	static_assert(std::is_same<T, typename std::remove_cv<T>::type>::value);
+
+	using type = T;
+
+	T** ptr;
+	C const& cf;
+
+	ctor(T** p, C const& c) : ptr(p), cf(c) {}
+	ctor(T** p, C const& c, D const& d) : D(d), ptr(p), cf(c) {}
+
+	template<class... Args> auto operator()(Args&&... args) const { return cf(args...); }
+};
+
+template<class T, class C, class D = delete_holder<T, void> >
+struct ctor_pure : D
+{
+	static_assert(std::is_same<T, typename std::remove_cv<T>::type>::value);
+
+	using type = T;
+	C const& cf;
+
+	ctor_pure(C const& c) : cf(c) {}
+	ctor_pure(C const& c, D const& d) : D(d), cf(c) {}
+
+	template<class... Args> auto operator()(Args&&... args) const { return cf(args...); }
+};
+
+
+
+#define PULMOTOR_implPSTR(x) #x
+#define PULMOTOR_PSTR(x) PULMOTOR_implPSTR(x)
+#define PULMOTOR_implPCAT(m, x) m ## x
+#define PULMOTOR_PCAT(m, x) PULMOTOR_implPCAT(m, x)
+#define PULMOTOR_implPSIZE(a, b, c, d, e, f, g, h, size, ...) size
+#define PULMOTOR_PSIZE(...) PULMOTOR_implPSIZE(__VA_ARGS__, 8, 7, 6, 5, 4, 3, 2, 1, 0)
 #define PULMOTOR_POVERLOAD(m, ...) PULMOTOR_PCAT(m, PULMOTOR_PSIZE(__VA_ARGS__))(__VA_ARGS__)
 
 #define PULMOTOR_NV_IMPL_1(property) ::pulmotor::nv(#property, property)

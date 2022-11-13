@@ -1,7 +1,9 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
-#include <doctest/doctest.h>
+#include <doctest.h>
 #include <pulmotor/serialize.hpp>
 #include <pulmotor/std/utility.hpp>
+#include <pulmotor/yaml_archive.hpp>
+#include <pulmotor/binary_archive.hpp>
 
 std::vector<char> operator"" _v(char const* s, size_t l) { return std::vector<char>(s, s + l); }
 
@@ -535,18 +537,13 @@ TEST_CASE("enum serialize")
 	using namespace pulmotor;
 	pulmotor::archive_vector_out ar;
 
-	A a{A1};
-	S s{S0};
-	C c{C::C0};
-	X x{X::X0};
-
+	A a{A1}, a1;
+	S s{S0}, s1;
+	C c{C::C0}, c1;
+	X x{X::X0}, x1;
 	ar | a | s | c | x;
-	archive_vector_in i(ar.data);
 
-	A a1;
-	S s1;
-	C c1;
-	X x1;
+	archive_vector_in i(ar.data);
 	i | a1 | s1 | c1 | x1;
 
 	CHECK(a1 == a);
@@ -736,11 +733,11 @@ TEST_CASE("ptr serialize")
 	SUBCASE("placement")
 	{
 		int x = 200, xx = 0;
-		std::aligned_storage<sizeof(A)> a[1];
+		std::aligned_storage_t<sizeof(A)> a[1];
 		new (a) A(12345678);
 		ar | place<A>(a) | x;
 
-		std::aligned_storage<sizeof(A)> aa[1];
+		std::aligned_storage_t<sizeof(A)> aa[1];
 		archive_vector_in i(ar.data);
 		i | place<A>(aa) | xx;
 
@@ -754,14 +751,14 @@ TEST_CASE("ptr serialize")
 
 	SUBCASE("placement new")
 	{
-		std::aligned_storage<sizeof(A)> a[1];
+		std::aligned_storage_t<sizeof(A)> a[1];
 		new (a) A(123456);
 		ar | place<A>(a);
 
 		P p1(100);
 		ar | p1;
 
-		std::aligned_storage<sizeof(A)> aa[1];
+		std::aligned_storage_t<sizeof(A)> aa[1];
 		archive_vector_in i(ar.data);
 		i | place<A>(aa);
 
@@ -1165,7 +1162,7 @@ TEST_CASE("string")
 		r3.reset();
 		for (int i=0; i<N; ++i)
 			for(int q=0; q<i; ++q)
-				sa[i] += '0' + r3.r(128-38);
+				sa[i] += '0' + r3.range(128-38);
 
 		for (int i=0;i<1; ++i)
 		{
@@ -1273,5 +1270,22 @@ TEST_CASE("map")
 	}
 }
 
+TEST_CASE("yaml")
+{
+	SUBCASE("primitives")
+	{
+	}
 
+	SUBCASE("struct")
+	{
+	}
+
+	SUBCASE("primitive array")
+	{
+	}
+
+	SUBCASE("struct array")
+	{
+	}
+}
 

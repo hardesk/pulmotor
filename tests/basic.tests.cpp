@@ -1,5 +1,5 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
-#include <doctest/doctest.h>
+#include <doctest.h>
 
 #include <pulmotor/pulmotor_types.hpp>
 #include <pulmotor/util.hpp>
@@ -24,6 +24,8 @@ doctest::String toString(pulmotor::text_location const& sl)
 
 TEST_CASE("pulmotor macros")
 {
+	test_yaml();
+
 	CHECK(PULMOTOR_PSIZE() == 1);
 	CHECK(PULMOTOR_PSIZE(a) == 1);
 	CHECK(PULMOTOR_PSIZE(a,b,c) == 3);
@@ -49,7 +51,7 @@ TEST_CASE("map tuple")
 	SUBCASE("empty")
 	{
 		int r = 0;
-		map( [&r] (auto const& a) { return a; }, std::tuple<>() );
+		map( [] (auto const& a) { return a; }, std::tuple<>() );
 		CHECK(r == 0);
 	}
 
@@ -224,7 +226,7 @@ TEST_CASE("location map")
 			for(int i=gen*15; i --> 0; ) r3();
 
 			for(size_t q=inf.size() * 4; q --> 0; ) {
-				size_t index = r3.r(inf.size());
+				size_t index = r3.range(inf.size());
 				assert(index < inf.size());
 				auto const& precomputed = inf[index];
 				text_location loc = lm.lookup( precomputed.offset );
@@ -382,7 +384,7 @@ TEST_CASE("base64")
 
 		size_t ii = 0;
 		std::generate_n(content,			SIZE / 2, [&ii]() { return ii++ >> 2; });
-		std::generate_n(content + SIZE / 2, SIZE / 2, [&r]() { return r.r(256); });
+		std::generate_n(content + SIZE / 2, SIZE / 2, [&r]() { return r.range(256); });
 
 		pulmotor::util::base64_encode(content, SIZE, encoded, util::base64_options::pad);
 		size_t decoded_size = pulmotor::util::base64_decode(encoded, ENCODED_SIZE, decoded);

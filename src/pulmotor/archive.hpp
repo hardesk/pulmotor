@@ -9,12 +9,10 @@
 #include <cstdarg>
 #include <cstddef>
 #include <cassert>
-#include <vector>
 #include <algorithm>
 #include <typeinfo>
 #include <string>
 #include <ios>
-#include <fstream>
 #include <unordered_map>
 
 #include "stream.hpp"
@@ -78,8 +76,9 @@ template<class Derived> struct mod_op { using type = Derived; };
 
 template<class T, class... Ops>
 struct mod_list : std::tuple<Ops...> {
-	T const& v;
-	mod_list(T const& v, std::tuple<Ops...> const& a) : v(v), std::tuple<Ops...>(a) {}
+	using value_ttype = T;
+	T const& value;
+	mod_list(T const& v, std::tuple<Ops...> const& a) : value(v), std::tuple<Ops...>(a) {}
 };
 
 template<class T> struct is_mod_list : std::false_type { };
@@ -94,7 +93,7 @@ template<class T, class Op, class... Ops>
 mod_list<T, Ops..., Op> operator*(mod_list<T, Ops...> const& ops, mod_op<Op> const& op) {
 	auto op_tup = std::make_tuple(static_cast<Op const&>(op));
 	std::tuple<Ops...> const& ops_tup = static_cast<std::tuple<Ops...> const&>(ops);
-	return mod_list<T, Ops..., Op>(ops.v, std::tuple_cat(ops_tup, op_tup));
+	return mod_list<T, Ops..., Op>(ops.value, std::tuple_cat(ops_tup, op_tup));
 }
 
 template<class Ar, class Context, class T, class... Ops>
@@ -118,303 +117,25 @@ struct mod_wrap : mod_op<mod_wrap> {
 	void operator()(Ar& ar, Context& ctx) { ctx.wrap = width; }
 };
 
+// template<class Derived>
+// struct archive_write_named_util
+// {
+// 	layout_registry m_reg;
+// 	layout* m_current;
+// 	std::vector<layout*> m_layout_stack;
 
-template<class Derived>
-struct archive_write_util
-{
-	enum { is_stream_aligned = true };
+// 	void begin_object()
+// 	}
 
-	Derived& self() { return *static_cast<Derived*>(this); }
+// 	template<size_t Align, class T>
+// 	void write_named_aligned(std::string_view name, T const& o) {
+// 		if (m_current) {
+// 			m_current.reg(name, o);
+// 		}
 
-	void align_stream(size_t al) {
-		while(1) {
-			fs_t offset = self().offset();
-			if ((offset & (al-1)) != 0) {
-				size_t write = util::align(offset, al) - offset;
-				assert(write <= 32);
-				self().write_data(null_32, write < 32 ? write : 32);
-			} else
-				break;
-		}
-	}
-};
-
-template<class Derived>
-struct archive_write_version_util
-{
-	enum { forced_align = 256 };
-
-	//unsigned version_flags() { }
-	archive_write_version_util(unsigned flags) : m_flags(flags) {}
-
-	Derived& self() { return *static_cast<Derived*>(this); }
-
-	template<class T>
-	void write_basic_aligned(T& o, unsigned align = 0) {
-		self().align_stream(align == 0 ? sizeof o : align);
-		self().write_data(&o, sizeof o);
-	}
-
-	// TODO: assert obj is a "proper" type, for example, not an array
-	template<class T>
-	void write_object_prefix(T const* obj, unsigned version) {
-		assert(version != (no_version & ver_mask));
-
-		u32 vf = version;
-		if (obj == nullptr)
-			vf |= ver_flag_null_ptr;
-
-		write_object_prefix_impl(typeid(T).name(), strlen(typeid(T).name()), vf);
-	}
-
-private:
-	void write_object_prefix_impl(char const* obj_name, size_t obj_name_len, unsigned vf)
-	{
-		fs_t block_size = 0;
-		if ((m_flags & ver_flag_align_object)) {// || (m_flags & ver_flag_debug_string)) {
-			vf |= ver_flag_garbage_length;
-		}
-
-		u32 name_length = 0;
-		if (m_flags & ver_flag_debug_string) {
-			vf |= ver_flag_debug_string;
-
-			name_length = obj_name_len;
-			if (name_length > ver_debug_string_max_size) name_length = ver_debug_string_max_size;
-			block_size += sizeof name_length + name_length;
-		}
-
-		u32 garbage_len = block_size;
-		if (m_flags & ver_flag_align_object) {
-			vf |= ver_flag_align_object;
-			block_size += sizeof garbage_len;
-		}
-
-		// write version, then calculate how much we'll actually write afterwards
-		self().align_stream(sizeof vf);
-		self().write_basic(vf);
-
-		// [version] [garbage_length]? ([string-length] [string-data)? [ ... alignment-data ... ]? [object]
-		fs_t base = self().offset();
-
-		fs_t objs = 0;
-		if(vf & ver_flag_align_object) {
-			objs = util::align(base + block_size, forced_align);
-			garbage_len = objs - base - sizeof garbage_len;
-		}
-
-		if (vf & ver_flag_garbage_length) {
-			self().write_basic(garbage_len);
-		}
-
-		if (vf & ver_flag_debug_string) {
-			self().write_basic(name_length);
-			self().write_data((void*)obj_name, name_length);
-		}
-
-		if (vf & ver_flag_align_object) {
-			assert(objs >= self().offset());
-			size_t align_size = objs - self().offset();
-#if PULMOTOR_DEBUG_ARCHIVE
-			for (size_t i=align_size; i --> 0; )
-				self().write_basic((u8)(i>0 ? '-' : '>'));
-#else
-			for (size_t i=align_size; i>0; ) {
-				size_t count = i > 32 ? 32 : i;
-				self().write_data(null_32,  count);
-				i -= count;
-			}
-#endif
-			assert(self().offset() == util::align(self().offset(), forced_align) && "garbage alignment is not correct");
-		}
-	}
-
-private:
-	unsigned m_flags;
-};
-
-struct object_meta
-{
-	unsigned vf;
-
-	object_meta& operator=(object_meta const&) = default;
-
-	unsigned version() const { return vf & ver_mask; }
-	unsigned is_nullptr() const { return vf & ver_flag_null_ptr; }
-	bool include_version() const { return (vf & ver_flag_no_version) == 0; }
-	void set_version(unsigned ver) { vf = (vf&~ver_mask) | (ver&ver_mask); }
-
-	operator unsigned() const { return vf & ver_mask; }
-};
-
-template<class Derived>
-struct archive_read_util
-{
-	enum { is_stream_aligned = true };
-	Derived& self() { return *static_cast<Derived*>(this); }
-
-	template<class T>
-	void read_basic_aligned(T& o, unsigned align = 0) {
-		self().align_stream(align == 0 ? sizeof o : align);
-		self().read_basic(o);
-	}
-
-	void align_stream(size_t al) {
-		fs_t offset = self().offset();
-		if ((offset & (al-1)) != 0)
-			self().advance(util::align(offset, al) - offset);
-	}
-
-	object_meta process_prefix() {
-
-		u32 version=0, garbage=0, debug_string_len=0;
-		self().read_basic(version);
-
-		if (version & ver_flag_garbage_length) {
-			self().read_basic(garbage);
-			self().advance(garbage);
-		} else {
-			if (version & ver_flag_debug_string) {
-				self().read_basic(debug_string_len);
-				self().advance(debug_string_len);
-			}
-		}
-
-		return object_meta{version};
-	}
-};
-
-template<class Derived>
-struct archive_pointer_support
-{
-	enum { track_pointers = true };
-	Derived& self() { return *static_cast<Derived*>(this); }
-
-	std::unordered_map<void*, u32> m_ptrtoid;
-	std::unordered_map<u32, void*> m_idtoptr;
-
-	void restore_ptr(u32 id, void* obj) {
-		assert(m_idtoptr.find(id) == m_idtoptr.end());;
-
-		m_idtoptr.insert(std::make_pair(id, obj));
-		m_ptrtoid.insert(std::make_pair(obj, id));
-	}
-	u32 reg_ptr(void* obj) {
-		auto it = m_ptrtoid.find(obj);
-		if (it != m_ptrtoid.end())
-			return it->second;
-
-		u32 id = m_ptrtoid.size() + 1;
-		m_idtoptr.insert(std::make_pair(id, obj));
-		m_ptrtoid.insert(std::make_pair(obj, id));
-		return id;
-	}
-
-	u32 lookup_id(void* ptr) {
-		if (auto it = m_ptrtoid.find(ptr); it != m_ptrtoid.end())
-			return it->second;
-		return 0;
-	}
-	void* lookup_ptr(u32 id) {
-		if (auto it = m_idtoptr.find(id); it != m_idtoptr.end())
-			return it->second;
-		return nullptr;
-	}
-};
-
-struct archive_whole : archive, archive_read_util<archive_whole>
-{
-	archive_whole (source& s) : source_ (s) {}
-	fs_t offset() const { return source_.offset(); }
-
-	enum { is_reading = 1, is_writing = 0 };
-
-	void advance(size_t s)
-	{
-		assert(source_.offset() + s <= source_.avail());
-		source_.advance(s, ec_);
-	}
-
-	template<class T>
-	void read_basic(T& data) {
-		assert( sizeof(T) <= source_.avail());
-		assert( ((uintptr_t)source_.data() & (sizeof(T)-1)) == 0 && "stream alignment issues");
-		data = *reinterpret_cast<T*>(source_.data());
-		source_.advance(sizeof(T), ec_);
-	}
-
-	void read_data (void* dest, size_t size)
-	{
-		assert( size <= source_.avail());
-		memcpy( dest, source_.data(), size);
-		source_.advance( size, ec_ );
-	}
-
-	std::error_code ec_;
-
-private:
-	source& source_;
-};
-
-struct archive_chunked : archive, archive_read_util<archive_chunked>
-{
-	archive_chunked (source& s) : source_ (s) {}
-	fs_t offset() const { return source_.offset(); }
-
-	enum { is_reading = 1, is_writing = 0 };
-
-	void advance(size_t s)
-	{
-		assert(source_.offset() + s <= source_.size());
-		source_.advance(s, ec_);
-	}
-
-	template<class T>
-	void read_basic(T& data) {
-		assert( source_.offset() + sizeof(T) <= source_.size());
-		assert( ((uintptr_t)source_.data() & (sizeof(T)-1)) == 0 && "stream alignment issues");
-		source_.fetch( &data, sizeof data, ec_ );
-	}
-
-	void read_data (void* dest, size_t size)
-	{
-		assert( source_.offset() + size <= source_.size());
-		source_.fetch( dest, size, ec_ );
-	}
-
-	std::error_code ec_;
-
-private:
-	source& source_;
-};
-
-struct archive_istream : archive, archive_read_util<archive_istream>
-{
-	archive_istream (std::istream& s) : stream_ (s), ec_{} {}
-
-	fs_t offset() const { return stream_.tellg(); }
-
-	enum { is_reading = 1, is_writing = 0 };
-
-	void advance(size_t s) {
-		stream_.seekg(stream_.tellg() + std::streamoff(s));
-	}
-
-	template<class T>
-	void read_basic(T& data) {
-		stream_.read((char*)&data, sizeof data);
-	}
-
-	void read_data (void* dest, size_t size) {
-		stream_.read((char*)dest, size);
-	}
-
-	std::error_code ec_;
-
-private:
-	std::istream& stream_;
-};
-
+// 		write_aligned<Align>(name, o);
+// 	}
+// };
 #if 0
 
 template<int FlagsT = 0, class ArchiveT, class T>
@@ -658,170 +379,6 @@ public:
 	}
 };
 #endif
-
-struct archive_sink
-	: public archive
-	, public archive_write_util<archive_sink>
-	, public archive_write_version_util<archive_sink>
-	, public archive_pointer_support<archive_sink>
-{
-	sink& sink_;
-	fs_t written_;
-
-public:
-	archive_sink (sink& s, unsigned flags = 0)
-		: archive_write_version_util<archive_sink>(flags)
-		, sink_ (s)
-		, written_ (0)
-	{}
-
-	enum { is_reading = 0, is_writing = 1 };
-
-	fs_t offset() const { return written_; }
-
-	std::error_code ec;
-
-	template<class T>
-	void write_basic (T const& data) {
-		sink_.write(&data, sizeof(data), ec);
-		written_ += sizeof data;
-	}
-
-	void write_data (void const* src, size_t size) {
-		sink_.write (src, size, ec);
-		written_ += size;
-	}
-};
-
-struct archive_vector_out
-	: public archive
-	, public archive_write_util<archive_vector_out>
-	, public archive_write_version_util<archive_vector_out>
-	, public archive_pointer_support<archive_vector_out>
-{
-	std::vector<char> data;
-
-	archive_vector_out(unsigned version_flags = 0) : archive_write_version_util<archive_vector_out>(version_flags)
-	{}
-
-	enum { is_reading = false, is_writing = true };
-
-	size_t offset() const { return data.size(); }
-
-	template<class T>
-	void write_basic(T const& a) {
-		char const* p = (char const*)&a;
-		data.insert(data.end(), p, p + sizeof(a));
-	}
-
-	void write_data(void const* src, size_t size) {
-		data.insert(data.end(), (char const*)src, (char const*)src + size);
-	}
-
-	std::string str() const { return std::string(data.data(), data.size()); }
-};
-
-struct archive_vector_in
-	: public archive
-	, public archive_read_util<archive_vector_in>
-	, public archive_pointer_support<archive_vector_in>
-{
-	std::vector<char> data;
-	size_t m_offset = 0;
-	archive_vector_in(std::vector<char> const& i) : data(i) {}
-
-	enum { is_reading = true, is_writing = false };
-
-	size_t offset() const { return m_offset; }
-
-	template<class T>
-	void read_basic(T& a) {
-		a = *(T const*)(data.data() + m_offset);
-		m_offset += sizeof a;
-	}
-
-	void advance(size_t s) { m_offset += s; }
-	void read_data(void* src, size_t size) {
-		memcpy(src, data.data() + m_offset, size); m_offset += size;
-	}
-
-	std::string str() const { return std::string(data.data(), data.size()); }
-};
-
-// template<class T>
-// size_t load_archive (path_char const* pathname, T&& obj, std::error_code& ec)
-// {
-// 	source_mmap s (pathname, source_mmap::ro, ec);
-// 	if (ec)
-// 		return 0U;
-
-// 	archive_whole ar(s);
-// 	ar | std::forward<T>(obj);
-// 	ec = ar.ec_;
-
-// 	return ar.offset();
-// }
-
-/*
-template<class T>
-size_t load_archive_debug (stir::path const& pathname, T& obj, std::error_code& ec, bool doDebug)
-{
-	stir::filesystem::input_buffer in (pathname, ec);
-	if (ec)
-		return 0;
-
-	pulmotor::input_archive inA (in);
-	if (doDebug)
-	{
-		pulmotor::debug_archive<pulmotor::input_archive> inAD(inA, std::cout);
-		pulmotor::archive (inAD, obj);
-	}
-	else
-		pulmotor::archive (inA, obj);
-
-	ec = inA.ec;
-
-	return inA.offset();
-}*/
-
-// template<class T>
-// size_t save_archive (path_char const* pathname, T&& obj, std::error_code& ec)
-// {
-// 	std::fstream os(pathname, std::ios_base::binary|std::ios_base::out);
-// 	if (os.good()) {
-// 		ec = std::make_error_code(std::errc::invalid_argument);
-// 		return 0;
-// 	}
-
-// 	sink_ostream s(os);
-// 	archive_sink ar(s);
-
-// 	ar | std::forward<T>(obj);
-
-// 	return ar.offset();
-// }
-
-/*
-template<class T>
-size_t save_archive_debug (stir::path const& pathname, T& obj, std::error_code& ec, bool doDebug)
-{
-	stir::filesystem::output_buffer out (pathname, ec);
-	if (ec)
-		return 0;
-
-	pulmotor::output_archive outA (out);
-	if (doDebug)
-	{
-		pulmotor::debug_archive<pulmotor::output_archive> outAD(outA, std::cout);
-		pulmotor::archive (outAD, obj);
-	}
-	else
-		pulmotor::archive (outA, obj);
-
-	ec = outA.ec;
-
-	return outA.offset();
-}*/
 
 } // pulmotor
 

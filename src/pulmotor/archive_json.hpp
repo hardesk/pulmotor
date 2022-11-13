@@ -62,7 +62,7 @@ public:
 	void write_basic (float data) { m_json.Double (data); }
 	void write_basic (double data) { m_json.Double (data); }
 
-	void write_data (void* p, size_t count)
+	void write_data (void const* p, size_t count)
 	{
 		m_json.StartArray();
 		for (unsigned char* s=(unsigned char*)p; count--; ++s)

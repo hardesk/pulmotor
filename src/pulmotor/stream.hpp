@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <iterator>
+#include <sstream>
 
 #include "pulmotor_config.hpp"
 #include "util.hpp"
@@ -25,29 +26,37 @@ class block_common
 	block_common(block_common const& a) = delete;
 	block_common& operator=(block_common const& a) = delete;
 
+public:
+	block_common() { zero(); }
+
+	// absolute offset of 'consumed' pointer
+	fs_t offset() const { return m_bloff + m_cur; }
+
+	// number of bytes available for immediate consumption (starting at current data)
+	size_t avail() { return m_blsize - m_cur; }
+
+ 	// ptr to current pointer
+	char* data() { return m_data + m_cur; }
+
 protected:
 	char* m_data;
 	fs_t m_bloff; // block offset in stream
 	size_t m_blsize, m_cur; // block size and offset in block
 
 	void zero() { m_data=nullptr; m_bloff=0; m_blsize=0; m_cur=0; }
-
-public:
-	block_common() { zero(); }
-	fs_t offset() const { return m_bloff + m_cur; } // absolute offset of 'consumed' pointer
-	size_t avail() { return m_blsize - m_cur; } // number of bytes available for immediate consumption (starting at current data)
-	char* data() { return m_data + m_cur; } // ptr to current pointer
 };
 
 class source : public block_common
 {
-protected:
-	virtual void make_available(std::error_code& ec) = 0;
 public:
+	virtual ~source() = 0;
+	virtual fs_t size() = 0;
+
 	void advance(size_t sz, std::error_code& ec);
 	size_t fetch(void* dest, size_t sz, std::error_code& ec);
 
-	virtual fs_t size() = 0;
+protected:
+	virtual void make_available(std::error_code& ec) = 0;
 };
 
 class source_mmap : public source
@@ -74,7 +83,11 @@ private:
 
 public:
 	source_mmap();
-	source_mmap(path_char const* path, flags fl, std::error_code& ec, fs_t off = 0, size_t mmap_block_size = 0) : source_mmap() { map(path, fl, ec, off, mmap_block_size); }
+	source_mmap(path_char const* path, flags fl, std::error_code& ec, fs_t off = 0, size_t mmap_block_size = 0)
+	: source_mmap()
+	{
+		map(path, fl, ec, off, mmap_block_size);
+	}
 	~source_mmap();
 
 	void map(path_char const* path, flags fl, std::error_code& ec, fs_t off = 0, size_t mmap_block_size = 0);
@@ -118,6 +131,7 @@ public:
 class sink
 {
 public:
+	virtual ~sink() = 0;
 	virtual void write(void const* data, size_t size, std::error_code& ec) = 0;
 };
 
@@ -131,6 +145,20 @@ public:
 	~sink_ostream();
 
 	void write(void const* data, size_t size, std::error_code& ec);
+};
+
+class sink_sstream : public sink
+{
+	std::stringstream m_stream;
+
+public:
+	sink_sstream();
+	sink_sstream(sink_sstream const& s);
+	~sink_sstream();
+
+	void write(void const* data, size_t size, std::error_code& ec);
+	std::stringstream& ss() { return m_stream; }
+	std::stringstream const& ss() const { return m_stream; }
 };
 
 struct PULMOTOR_ATTR_DLL header

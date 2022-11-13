@@ -1,5 +1,5 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
-#include <doctest/doctest.h>
+#include <doctest.h>
 
 #include <pulmotor/stream.hpp>
 #include <pulmotor/util.hpp>
@@ -14,7 +14,7 @@ bool make_temp_file(pulmotor::path_char const* path, size_t size)
 {
 	std::fstream f(path, std::ios_base::out|std::ios_base::trunc);
 	for(int i=0; i<size; ++i)
-		f << char('a' + r3.r(26));
+		f << char('a' + r3.range(26));
 	return f.good();
 }
 

@@ -1,5 +1,5 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
-#include <doctest/doctest.h>
+#include <doctest.h>
 #include <pulmotor/yaml_emitter.hpp>
 #include <string_view>
 
@@ -13,7 +13,6 @@
 using namespace pulmotor;
 //static romu3 r3;
 
-// todo: move out
 TEST_CASE("yaml writer")
 {
     std::stringstream ss(std::ios_base::out|std::ios_base::binary);
@@ -49,14 +48,14 @@ TEST_CASE("yaml writer")
 
 	SUBCASE("properties flow")
 	{
-		ws.mapping(yaml::writer::flow);
+		ws.mapping(yaml::flow);
 		ws.anchor("x1"sv);
 		ws.key("a"sv);
 		ws.anchor("x2"sv);
 		ws.tag("!str"sv);
 		ws.value("100"sv);
 		ws.key("b"sv);
-			ws.sequence(yaml::writer::flow);
+			ws.sequence(yaml::flow);
 			ws.anchor("y1"sv);
 			ws.value("200"sv);
 			ws.value("*x2"sv);
@@ -67,10 +66,10 @@ TEST_CASE("yaml writer")
 
     SUBCASE("array flow")
     {
-        ws.sequence(yaml::writer::flow);
+        ws.sequence(yaml::flow);
         ws.value("1"sv);
         ws.value("2"sv);
-			ws.sequence(yaml::writer::flow);
+			ws.sequence(yaml::flow);
 			ws.value("10"sv);
 			ws.value("20"sv);
 			ws.end_container();
@@ -105,7 +104,7 @@ TEST_CASE("yaml writer")
 
 	SUBCASE("mapping flow")
 	{
-	    ws.mapping(yaml::writer::flow);
+	    ws.mapping(yaml::flow);
 		ws.key("a"sv);
 	    ws.value("10"sv);
 	    ws.key_value("b"sv, "20"sv);
@@ -113,7 +112,7 @@ TEST_CASE("yaml writer")
 	    ws.value("30"sv);
 
 		ws.key("d"sv);
-			ws.sequence(yaml::writer::flow);
+			ws.sequence(yaml::flow);
 			ws.anchor("xx"sv);
 			ws.value("1"sv);
 			ws.anchor("yy"sv);
@@ -121,7 +120,7 @@ TEST_CASE("yaml writer")
 			ws.end_container();
 
 		ws.key("e"sv);
-			ws.mapping(yaml::writer::flow);
+			ws.mapping(yaml::flow);
 			ws.key_value("x"sv, "5"sv);
 			ws.key_value("y"sv, "10"sv);
 			ws.end_container();
@@ -133,7 +132,7 @@ TEST_CASE("yaml writer")
 	SUBCASE("block")
 	{
 		SUBCASE("literal") {
-			ws.value("hello\nworld\n", yaml::writer::block_literal);
+			ws.value("hello\nworld\n", yaml::block_literal);
 			CHECK(ss.str() == "|\n hello\n world\n");
 #ifdef TEST_YAML_PARSE
 		    ryml::Tree y = ryml::parse(ryml::to_csubstr(ss.str()));
@@ -142,7 +141,7 @@ TEST_CASE("yaml writer")
 		}
 
 		SUBCASE("fold") {
-			ws.value("hello\nworld", yaml::writer::block_fold);
+			ws.value("hello\nworld", yaml::block_fold);
 			CHECK(ss.str() == ">-\n hello\n world\n");
 #ifdef TEST_YAML_PARSE
 		    ryml::Tree y = ryml::parse(ryml::to_csubstr(ss.str()));
@@ -151,7 +150,7 @@ TEST_CASE("yaml writer")
 		}
 
 		SUBCASE("clip") {
-			ws.value("hello\nworld\n", yaml::writer::block_literal|yaml::writer::eol_clip);
+			ws.value("hello\nworld\n", yaml::block_literal|yaml::eol_clip);
 			CHECK(ss.str() == "|\n hello\n world\n");
 #ifdef TEST_YAML_PARSE
 		    ryml::Tree y = ryml::parse(ryml::to_csubstr(ss.str()));
@@ -159,7 +158,7 @@ TEST_CASE("yaml writer")
 #endif
 		}
 		SUBCASE("strip") {
-			ws.value("hello\nworld\n", yaml::writer::block_fold|yaml::writer::eol_strip);
+			ws.value("hello\nworld\n", yaml::block_fold|yaml::eol_strip);
 			CHECK(ss.str() == ">-\n hello\n world\n");
 #ifdef TEST_YAML_PARSE
 		    ryml::Tree y = ryml::parse(ryml::to_csubstr(ss.str()));
@@ -167,7 +166,7 @@ TEST_CASE("yaml writer")
 #endif
 		}
 		SUBCASE("keep") {
-			ws.value("hello\nworld\n\n", yaml::writer::block_fold|yaml::writer::eol_keep);
+			ws.value("hello\nworld\n\n", yaml::block_fold|yaml::eol_keep);
 			CHECK(ss.str() == ">+\n hello\n world\n \n");
 #ifdef TEST_YAML_PARSE
 		    ryml::Tree y = ryml::parse(ryml::to_csubstr(ss.str()));
@@ -176,7 +175,7 @@ TEST_CASE("yaml writer")
 #endif
 		}
 		SUBCASE("keep indented") {
-			ws.value("hello\n world\n\n", yaml::writer::block_literal|yaml::writer::eol_keep);
+			ws.value("hello\n world\n\n", yaml::block_literal|yaml::eol_keep);
 			CHECK(ss.str() == "|+\n hello\n  world\n \n");
 #ifdef TEST_YAML_PARSE
 		    ryml::Tree y = ryml::parse(ryml::to_csubstr(ss.str()));
@@ -185,7 +184,7 @@ TEST_CASE("yaml writer")
 #endif
 		}
 		SUBCASE("indent") {
-			ws.value("hello\nworld\n all", yaml::writer::block_literal|yaml::writer::indent(3));
+			ws.value("hello\nworld\n all", yaml::block_literal|yaml::writer::indent(3));
 			CHECK(ss.str() == "|-3\n   hello\n   world\n    all\n");
 #ifdef TEST_YAML_PARSE
 		    ryml::Tree y = ryml::parse(ryml::to_csubstr(ss.str()));
@@ -194,6 +193,79 @@ TEST_CASE("yaml writer")
 #endif
 		}
 	}
+}
+
+#include <pulmotor/yaml_archive.hpp>
+
+TEST_CASE("yaml archive")
+{
+	sink_sstream ss;
+	archive_yaml_writer ar(ss);
+	archive_yaml_writer::context
+		def {},
+		flow { yaml::flow, 0, 0 },
+		base64 { 0, true, 0 }
+		;
+
+	SUBCASE("int") {
+		ar.write_basic(10, def);
+		CHECK( ss.ss().str() == "10\n");
+	}
+	SUBCASE("int dash") {
+		ar.set_flags(archive_yaml_writer::dash_first_stream);
+		ar.write_basic(10, def);
+		CHECK( ss.ss().str() == "---\n10\n");
+	}
+	SUBCASE("int 2") {
+		ar.write_basic(10, def);
+		ar.write_basic(20, def);
+		CHECK( ss.ss().str() == "10\n---\n20\n");
+	}
+
+	SUBCASE("array") {
+		ar.begin_array(def);
+		ar.write_basic(10, def);
+		ar.write_basic(20, def);
+		ar.end_container();
+		CHECK( ss.ss().str() == "- 10\n- 20\n");
+	}
+	SUBCASE("array flow") {
+		ar.begin_array(flow);
+		ar.write_basic(10, def);
+		ar.write_basic(20, def);
+		ar.end_container();
+		CHECK( ss.ss().str() == "[10, 20]\n");
+	}
+
+	SUBCASE("implicit mapping int 1") {
+		ar.write_key("xx"sv, def);
+		ar.write_basic(10, def);
+		CHECK( ss.ss().str() == "xx: 10\n");
+	}
+
+	SUBCASE("implicit mapping int 2") {
+		ar.write_key("xx"sv, def);
+		ar.write_basic(10, def);
+		ar.write_key("yy"sv, def);
+		ar.write_basic(20, def);
+		CHECK( ss.ss().str() == "xx: 10\n---\nyy: 20\n");
+	}
+
+	SUBCASE("mapping") {
+		ar.begin_object(def);
+		ar.write_key("x", def);
+		ar.write_basic(10, def);
+		ar.write_key("y", def);
+		ar.write_basic(20, def);
+		ar.end_container();
+		CHECK( ss.ss().str() == "x: 10\ny: 20\n");
+	}
+
+	SUBCASE("b64 value") {
+		ar.encode_array(base64, "1234", 4);
+		CHECK( ss.ss().str() == "!!binary MTIzNAo\n");
+	}
+
 }
 
 /*

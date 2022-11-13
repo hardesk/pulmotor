@@ -14,6 +14,10 @@
 namespace pulmotor
 {
 
+source::~source()
+{
+}
+
 void source::advance(size_t sz, std::error_code& ec) {
 	while(1) {
 		if ((m_cur += sz) > m_blsize) {
@@ -50,6 +54,10 @@ size_t source::fetch(void* dest, size_t sz, std::error_code& ec) {
 	return copied;
 }
 
+sink::~sink()
+{
+}
+
 sink_ostream::sink_ostream(std::ostream& os) : m_stream(os)
 {
 }
@@ -63,6 +71,24 @@ void sink_ostream::write(void const* data, size_t size, std::error_code& ec)
 {
 	m_stream.write((char const*)data, size);
 }
+
+sink_sstream::sink_sstream()
+{}
+
+sink_sstream::sink_sstream(sink_sstream const& s)
+{
+	m_stream << s.m_stream.rdbuf();
+}
+
+sink_sstream::~sink_sstream()
+{}
+
+void sink_sstream::write(void const* data, size_t size, std::error_code& ec)
+{
+	ec.clear();
+	m_stream.write((char const*)data, size);
+}
+
 
 inline std::error_code mk_ec(int err) { return std::make_error_code((std::errc)err); }
 

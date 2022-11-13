@@ -1,4 +1,4 @@
-import LIBS = lib{pulmotor} doctest%lib{doctest} nanobench%lib{nanobench}
+import LIBS = lib{pulmotor} doctest%lib{doctest} nanobench%lib{nanobench} rapidyaml%lib{rapidyaml}
 
 for f: cxx{**.tests...}
 {

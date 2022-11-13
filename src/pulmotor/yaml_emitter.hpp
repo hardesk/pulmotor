@@ -5,6 +5,7 @@
 #include "util.hpp"
 #include <iostream>
 #include <string_view>
+#include <cinttypes>
 
 using namespace std::literals;
 
@@ -15,6 +16,20 @@ char spacer[8] = { 32,32,32,32, 32,32,32,32 };
 
 namespace yaml
 {
+
+// values must not clash with writer::internal
+enum fmt_flags : unsigned {
+	block_literal = 0x01, // keep newlines when reading
+	block_fold	  = 0x02, // fold newlines when reading
+
+	eol_clip	  = 0x04, // single newline at the end of the block
+	eol_strip	  = 0x08, // no newlines at the end
+	eol_keep	  = 0x10, // preserve all newlines (including the ones after the block)
+						  // if none is specified, it is computed automatically based on value
+	single_quoted = 0x20,
+	double_quoted = 0x40,
+	flow		  = 0x80,
+};
 
 struct writer
 {
@@ -30,41 +45,27 @@ struct writer
     writer(sink& sink) : m_sink(sink)
     {}
 
-    enum flags : unsigned {
-        block_literal = 0x100, // keep newlines when reading
-        block_fold	  = 0x200, // fold newlines when reading
-
-		// if none is specified, it is computed automatically based on value
-		eol_clip	  = 0x0400, // single newline at the end of the block
-		eol_strip	  = 0x0800, // no newlines at the end
-		eol_keep	  = 0x1000, // preserve all newlines (including the ones after the block)
-
-        single_quoted = 0x1'0000,
-        double_quoted = 0x2'0000,
-        flow		  = 0x8'0000,
-    };
-
 	struct internal { enum : unsigned {
-		key_written	   = 0x01,
-		value_written  = 0x02,
-		tag_written	   = 0x04,
-		anchor_written = 0x08,
+		key_written	   = 0x100,
+		value_written  = 0x200,
+		tag_written	   = 0x400,
+		anchor_written = 0x800,
 		property_written = tag_written | anchor_written,
 		key_value_written = key_written | value_written,
 
-		in_sequence	= 0x10,
-		in_mapping	= 0x20,
-		in_block	= 0x40,
+		in_sequence	= 0x1000,
+		in_mapping	= 0x2000,
+		in_block	= 0x4000,
 		in_container = in_sequence|in_mapping,
 
-		eol_mask	  = eol_clip|eol_strip|eol_keep,
+		eol_mask	  = fmt_flags::eol_clip|fmt_flags::eol_strip|fmt_flags::eol_keep,
 
 		indent_mask	= 0x00f0'0000, indent_shift = 20,
 		wrap_mask	= 0xff00'0000u, wrap_shift = 24
 	}; };
 
-	constexpr static flags indent(unsigned n) { assert(n < 10); return (flags)(n << internal::indent_shift); }
-	constexpr static flags wrap(unsigned n) { assert(n < 255); return (flags)(n << internal::wrap_shift); }
+	constexpr static fmt_flags indent(unsigned n) { assert(n < 10); return (fmt_flags)(n << internal::indent_shift); }
+	constexpr static fmt_flags wrap(unsigned n) { assert(n < 255); return (fmt_flags)(n << internal::wrap_shift); }
 
     template<size_t N> void out(char const (&s)[N]) { m_sink.write(s, N-1, m_ec); }
     void out(char const* s, size_t len) { m_sink.write(s, len, m_ec); }
@@ -72,18 +73,35 @@ struct writer
 
 	// outputs indented text, wrapped at wrap (if non-null)
 	// inserts newlines only when wrapping (no new line at the end)
-    void out_indented(std::string_view s, size_t indent, size_t wrap) {
+	// when quoted, we add quote and the front and at the end, then replace EOL with NL and add backslash when wrapping
+    void out_indented(std::string_view s, size_t indent, size_t wrap, bool quoted) {
 		if (!wrap) wrap = s.size();
+		if (quoted) out("\"");
 		for(size_t i=0; i<s.size(); ) {
 			out_prefix(indent);
 			size_t left = s.size() - i;
 			size_t write = left > wrap ? wrap : left;
+			std::string_view sw = s.substr(i, write);
+			assert (sw.size() > 0);
+			// when quoted, \n -> '\n'; wrap with backslash
+			if (quoted) {
+					size_t nl = sw.find_first_of('\n');
+			} else {
+				if (!std::isspace(sw.back())) {
+					size_t ws_pos = sw.find_last_of(" \n");
+					if (ws_pos != std::string_view::npos && ws_pos > 0) {
+						sw.remove_suffix(sw.size() - ws_pos - 1);
+					}
+				}
+			}
+
 			size_t nl = s.substr(i, write).find_first_of('\n');
 			if (nl != std::string_view::npos)
 				write = nl + 1;
 			out(s.substr(i, write));
 			if ((i += write) != s.size() && (nl == std::string_view::npos)) out("\n");
 		}
+		if (quoted) out("\"");
 	}
 
 	void out_prefix() { out_prefix(m_prefix); }
@@ -139,16 +157,16 @@ struct writer
 
 		size_t indent = 1;
 		bool add_eol = true;
-		if (flags & (block_literal|block_fold)) {
+		if (flags & (fmt_flags::block_literal|fmt_flags::block_fold)) {
 
 			bool ends_with_eol = !a.empty() && a.back() == '\n';
 			add_eol = !ends_with_eol;
 
 			// we add eol only when there was none at the end of the supplied value.
 
-			if (flags & block_literal)
+			if (flags & fmt_flags::block_literal)
 				out("|");
-			else if (flags & block_fold)
+			else if (flags & fmt_flags::block_fold)
 				out(">");
 
 			if ( !(flags&internal::eol_mask) ) {
@@ -161,9 +179,9 @@ struct writer
 						out("+");
 				}
 
-			} else if (flags & eol_strip)
+			} else if (flags & fmt_flags::eol_strip)
 				out("-");
-			else if(flags & eol_keep)
+			else if(flags & fmt_flags::eol_keep)
 				out("+");
 
 			if (flags & internal::indent_mask) {
@@ -175,7 +193,7 @@ struct writer
 			out("\n");
 
 			size_t wrap = (flags & internal::wrap_mask) ? 0 : ((flags & internal::wrap_shift) >> internal::wrap_shift);
-			out_indented(a, m_prefix + indent, wrap);
+			out_indented(a, m_prefix + indent, wrap, true);
 
 		} else {
 			out(a);
@@ -283,32 +301,46 @@ struct writer
 
 		m_state |= internal::anchor_written;
     }
+
+	void new_stream() {
+		out("---\n");
+	}
 };
 
 struct writer_ostream : writer
 {
-    // std::ostream& m_stream;
     sink_ostream m_os_sink;
 
     writer_ostream(std::ostream& s)
-    :   m_os_sink(s)
-    ,   writer(m_os_sink)
+    :   writer(m_os_sink)
+	,	m_os_sink(s)
     {}
 };
+
+template<class T>
+struct printf_spec;
+
+template<> struct printf_spec< std::int8_t> { using cast_to = std::int16_t; static constexpr char const* fmt = "%" PRId16; };
+template<> struct printf_spec<std::int16_t> { using cast_to = std::int16_t; static constexpr char const* fmt = "%" PRId16; };
+template<> struct printf_spec<std::int32_t> { using cast_to = std::int32_t; static constexpr char const* fmt = "%" PRId32; };
+template<> struct printf_spec<std::int64_t> { using cast_to = std::int64_t; static constexpr char const* fmt = "%" PRId64; };
+
+template<> struct printf_spec< std::uint8_t> { using cast_to = std::uint16_t; static constexpr char const* fmt = "%" PRIu16; };
+template<> struct printf_spec<std::uint16_t> { using cast_to = std::uint16_t; static constexpr char const* fmt = "%" PRIu16; };
+template<> struct printf_spec<std::uint32_t> { using cast_to = std::uint32_t; static constexpr char const* fmt = "%" PRIu32; };
+template<> struct printf_spec<std::uint64_t> { using cast_to = std::uint64_t; static constexpr char const* fmt = "%" PRIu64; };
 
 //template<class Writer>
 //struct formatter : Writer
 struct formatter : writer
 {
-	template<class T>
-	void format_key(std::enable_if_t< std::is_integral_v<T>, T> a) {
-		char buff[32];
-		size_t l;
-		if constexpr(std::is_signed_v<T>)
-			l = snprintf(buff, sizeof buff, "%ill", a);
-		else
-			l = snprintf(buff, sizeof buff, "%ull", a);
+	formatter(sink& s) : writer(s) {}
 
+	template<class T>
+	std::enable_if_t< std::is_integral_v<T>, void>
+	format_key(T a) {
+		char buff[32];
+		size_t l = snprintf(buff, sizeof buff, printf_spec<T>::fmt, a);
 		key(std::string_view(buff, l));
 	}
 
@@ -317,30 +349,29 @@ struct formatter : writer
 	template<size_t N> void format_key(char const (&a)[N]) { key(std::string_view(a, N)); }
 
 	template<class T>
-	void format_value(std::enable_if_t< std::is_floating_point_v<T>, T> a) {
+//	void format_value(std::enable_if_t< std::is_floating_point_v<T>, T> a, unsigned flags = 0) {
+	void format_value(T a, std::enable_if_t< std::is_floating_point_v<T>, unsigned> flags = 0) {
 		char buff[32];
 		size_t l = snprintf(buff, sizeof buff, "%f", a);
-		value(std::string_view(buff, l));
+		value(std::string_view(buff, l), flags);
 	}
-	template<class T>
-	void format_value(std::enable_if_t< std::is_integral_v<T>, T> a) {
-		char buff[32];
-		size_t l;
-		if constexpr(std::is_signed_v<T>)
-			l = snprintf(buff, sizeof buff, "%ill", a);
-		else
-			l = snprintf(buff, sizeof buff, "%ull", a);
 
-		value(std::string_view(buff, l));
-	}
 	template<class T>
+//	void format_value(std::enable_if_t< std::is_integral_v<T>, T> a, unsigned flags = 0) {
+	void format_value(T a, std::enable_if_t< std::is_integral_v<T>, unsigned> flags = 0) {
+		char buff[32];
+		size_t l = snprintf(buff, sizeof buff, printf_spec<T>::fmt, a);
+		value(std::string_view(buff, l), flags);
+	}
+
 	void encode_value(char const* data, size_t size, size_t wrap = 0) {
 		std::string buff;
 		buff.resize(util::base64_encode_length(size, util::base64_options::pad));
 		util::base64_encode(data, size, buff.data(), util::base64_options::pad);
 
 		tag("binary");
-		value(buff, writer::block_fold|writer::wrap(wrap));
+		// value(buff, fmt_flags::block_fold|writer::wrap(wrap));
+		value(buff, fmt_flags::block_fold|writer::wrap(wrap));
 	}
 };
 

@@ -26,6 +26,12 @@
 #define PULMOTOR_RTTI __cpp_rtti
 #endif
 
+#if defined(__MSC_VER)
+#define PULMOTOR_NOINLINE __declspec(noinline)
+#else
+#define PULMOTOR_NOINLINE __attribute__((noinline))
+#endif
+
 #define PULMOTOR_UNUSED(x) ((void)x)
 //#define PULMOTOR_STIR_PATH_SUPPORT 1
 

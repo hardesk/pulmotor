@@ -251,7 +251,7 @@ template<class F>
 scope_exit(F) -> scope_exit<F>;
 
 #define PULMOTOR_SCOPE_EXIT1(C, ...) \
-	pulmotor::scope_exit x##C = [__VA_ARGS__]()
+	pulmotor::scope_exit scope_exit_##C = [__VA_ARGS__]()
 
 #define PULMOTOR_SCOPE_EXIT(...) \
 	PULMOTOR_SCOPE_EXIT1(__COUNTER__, __VA_ARGS__)
@@ -276,7 +276,8 @@ struct location_map
 {
 	using ctT = std::char_traits<char>;
 
-	location_map(char const* start, size_t len) : m_start(start), m_size(len) {}
+	location_map(char const* start, size_t len);
+	~location_map();
 
 	void analyze();
 	text_location lookup(size_t offset);
@@ -293,6 +294,18 @@ private:
 	struct info { size_t eol, line; };
 	std::vector<info> m_lookup;
 };
+
+
+template<class T, class D>
+struct context {
+	D& data;
+	T& obj;
+};
+
+template<class T, class D>
+constexpr inline context<T, D> with_ctx (T& o, D&& data) {
+	return context<T, D> { o, std::forward<D> (data) };
+}
 
 #if PULMOTOR_EXCEPTIONS
 
