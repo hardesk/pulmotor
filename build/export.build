@@ -3,6 +3,6 @@ $out_root/
 	include ./
 }
 
-info "PULMOTOR export: src_root: $src_root, src_base: $src_base, out_base: $out_base, out_root: $out_root, import.target: $import.target"
+info "PULMOTOR export: src_root: $src_root, src_base: $src_base, out_base: $out_base, out_root: $out_root, import.target: $import.target, copts: $(cxx.coptions)"
 
 export $out_root/$import.target

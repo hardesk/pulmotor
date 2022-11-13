@@ -31,7 +31,6 @@ struct Y
     template<class Ar> void serialize(Ar& ar, unsigned version) { ar | px; }
 };
 
-
 int main()
 {
     pulmotor::archive_vector_out ar;
@@ -69,6 +68,7 @@ int main()
                      | BASE <struct>
                      | ARRAY-REF primitive-array | ARRAY-REF struct-array
                      | VU <size_t>
+                     | NV(name) <serializable>
 
 <pointer>           := PTR-ID? <serializable>
 <pointer-array>     := SIZE (PTR-ID? <serializable>){SIZE}
@@ -81,6 +81,8 @@ VF                  := FLAGS-and-version
 
 ## Building
 
+I'm testing out build2 as a project building tool. Getting into it and setting up the project is not trivial.
+
 ```
 b create: ../clang_build/,cxx config.cxx=clang++
 b configure: ../clang_build/ config.cc.coptions="-g" config.cc.poptions="DEBUG" # configure for debug build
@@ -88,4 +90,9 @@ b configure: ../clang_build/ config.cc.coptions="-g" config.cc.poptions="DEBUG" 
 cd ../clang_build
 b
 ```
+
+
+## Testing
+
+yaml structure https://nimyaml.org/testing.html
 
