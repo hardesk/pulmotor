@@ -27,12 +27,12 @@ uint32_t rand_range_impl(Rand& rng, uint32_t range) {
 
 unsigned rand_range(romu3& rnd, unsigned range)
 {
-	return rand_range_impl(rnd, range);
+    return rand_range_impl(rnd, range);
 }
 
 unsigned rand_range(romu_q32& rnd, unsigned range)
 {
-	return rand_range_impl(rnd, range);
+    return rand_range_impl(rnd, range);
 }
 
 } // pulmotor

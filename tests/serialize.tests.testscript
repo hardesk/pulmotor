@@ -1,3 +1,0 @@
-: serialize-tests 
-$* -nv 1>- == 0
-

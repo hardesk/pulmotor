@@ -3,7 +3,7 @@
 #define ANKERL_NANOBENCH_IMPLEMENT
 #include <nanobench.h>
 
-#include "base64_nibbleandhalf.h"
+#include "libbase64.h"
 
 int main()
 {
@@ -14,7 +14,6 @@ int main()
 		std::function<void(char const*, size_t, char*)> encode,
 		std::function<void(char const*, size_t, char*)> decode
 	) {
-
 		size_t ENCODED_SIZE = pulmotor::util::base64_encode_length(SIZE);
 		size_t DECODED_SIZE = pulmotor::util::base64_decode_length_approx(ENCODED_SIZE);
 		char* content = new char[SIZE];
@@ -22,7 +21,7 @@ int main()
 		char* decoded = new char[DECODED_SIZE];
 		PULMOTOR_SCOPE_EXIT(&) { delete[] content; delete[] encoded; delete[] decoded; };
 
-		std::generate_n(content, SIZE, [&r]() { return r.r(256); });
+		std::generate_n(content, SIZE, [&r]() { return r.range(256); });
 
 		ankerl::nanobench::Bench().minEpochIterations(16).run("encode "s + desc, [&] {
 			encode(content, SIZE, encoded);
@@ -60,17 +59,17 @@ int main()
 	}
 
 	{
-		// NIBBLE AND HALF
+		// AKLOMP
 		auto enc = [] (char const* content, size_t SIZE, char* encoded) {
-			std::string s = base64(content, SIZE);
-			//memcpy(encoded, s.data(), s.size());
+            size_t outlen = 0;
+            base64_encode(content, SIZE, encoded, &outlen, BASE64_FORCE_NEON64);
 		};
 		auto dec = [] (char const* encoded, size_t SIZE, char* decoded) {
-			std::string s = unbase64(encoded, SIZE);
-			//memcpy(decoded, s.data(), s.size());
+            size_t outlen = 0;
+            unsigned int l = base64_decode(encoded, SIZE, decoded, &outlen, BASE64_FORCE_NEON64);
 		};
 
-		do_test("nibbleandhalf", enc, dec);
+		do_test("aklomp", enc, dec);
 	}
 
 }

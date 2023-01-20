@@ -12,7 +12,7 @@ using namespace std::string_literals;
 //     ryml::csubstr skey(ryml::Tree& r) {
 //         if (ryml::NodeData const* n = r.get(m_currid)) {
 //             if (n->is_keyval() && n->keysc()
-            
+
 
 //         }
 //     }
@@ -77,16 +77,16 @@ void test_yaml()
 {
     char yt[] =
 R"(
-  a: 1
-  x:
-  arr:
+a: 1
+x:
+arr:
     - 1
     - q: 10
       w: "ceramic"
     - 3
-  b: 3
-  name: hello
-  c: "50"
+b: 3
+name: hello
+c: "50"
 )";
 //    dump_yaml(yt);
     char yt_empty[] = "";
@@ -114,8 +114,8 @@ a: 3
 - a: 1
   b: 2
   c:
-     x: F1
-     y: F2
+    x: F1
+    y: F2
 - 20
 - 30
 )";

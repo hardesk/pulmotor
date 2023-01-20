@@ -27,4 +27,3 @@ inline void serialize_save(Ar& ar, std::unique_ptr<T, D> const& p)
 }
 
 #endif // PULMOTOR_STD_MEMORY_HPP_
-

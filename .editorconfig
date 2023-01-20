@@ -7,8 +7,10 @@ trim_trailing_whitespace=true
 end_of_line=lf
 
 [*.{h,hpp,c,cpp,cxx,cc}]
-indent_style=tab
+indent_style=space
 indent_size=4
+insert_final_newline=true
+trim_trailing_whitespace=true
 
 [*.md]
 ident_style=space

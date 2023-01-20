@@ -96,13 +96,18 @@
         "simd": "cpp",
         "__cxx_version": "cpp",
         "__memory": "cpp",
-        "__bits": "cpp"
+        "__bits": "cpp",
+        "forward_list": "cpp",
+        "regex": "cpp",
+        "valarray": "cpp",
+        "version": "cpp",
+        "format": "cpp"
     },
     "C_Cpp.default.includePath": [
         "${workspaceFolder}/src",
-        "${workspaceFolder}/../doctest.git",
+        "${workspaceFolder}/subprojects/doctest-2.4.9",
         "${workspaceFolder}/../nanobench.git/src/include",
-        "${workspaceFolder}/../cereal.git/include",
+        // "${workspaceFolder}/../cereal.git/include",
         "${workspaceFolder}/../rapidyaml.git/src"
     ],
     "cmake.configureOnOpen": false

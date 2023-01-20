@@ -6,6 +6,7 @@
 
 namespace pulmotor
 {
+
 typedef unsigned char		u8;
 typedef signed char			s8;
 typedef unsigned short int	u16;
@@ -26,72 +27,140 @@ typedef char path_char;
 typedef std::string path_string;
 #endif
 
-typedef u64 fs_t;
+typedef u64 fs_t; // type used to store file size
 
 enum { header_size = 8 };
-enum : u16
+enum class vfl : u16
 {
-	version_dont_track			= 0xffffu, // depracated
-	no_version					= 0xffffu, // value that is transformed into ver_flag_no_version
-	version_default				= 0u,
+    no_prefix				    = 0xffffu,
+    no_version					= 0xffffu, // value that is transformed into ver_flag_no_version
+    default_version				= 0u,
 
-	// object pointer was null when writing
-	ver_flag_null_ptr			= 0x8000u,
+    // object pointer was null when writing
+    null_ptr		        	=  0x8000u,
 
-	// vu follows 'version' that specifies how much to advance stream (this u32 not included) to get to object data
-	// in other words how much unknown information is between the version and object
-	ver_flag_garbage_length		= 0x4000u,
+    // u16 follows 'version' that specifies how much to advance stream (u16 value not included) to get to object data.
+    // in other words, how much unknown information is between the version and the object data
+    garbage                     = 0x4000u,
 
-	// arbitraty "debug" string is present after (optional garbage length)
-	ver_flag_debug_string		= 0x2000u,
-	ver_debug_string_max_size	= 0x100u,
+    // arbitraty "debug" string is present after (optional garbage length)
+    debug_string		        = 0x2000u,
+    debug_string_max_size	    = 0x100u,
 
-	// align object (except primitive types) on an alignment address specified by archive
-	ver_flag_align_object		= 0x1000u,
+    // align object (except primitive types) on an alignment address specified by archive
+    align_object        		= 0x1000u,
 
-	// set if object was serialized using "wants-construct == true"
-	ver_flag_wants_construct	= 0x0200u,
+    // set if object was serialized using "wants-construct == true"
+    wants_construct	            = 0x0200u,
 
-	// class is configured not to store the version into file
-	ver_flag_no_version			= 0x0100u,
+    none                        = 0x0
+};
+constexpr inline vfl operator|(vfl a, vfl b) { return (vfl)( (unsigned)a | (unsigned)b); }
+constexpr inline vfl operator&(vfl a, vfl b) { return (vfl)( (unsigned)a & (unsigned)b); }
+constexpr inline vfl operator~(vfl a) { return (vfl)(~(unsigned)a); }
+constexpr inline bool operator==(vfl a, unsigned b) { return (unsigned)a == b; }
+constexpr inline bool operator!=(vfl a, unsigned b) { return (unsigned)a != b; }
+constexpr inline vfl& operator|=(vfl& a, vfl b) { a = (vfl)((unsigned)a | (unsigned)b); return a; }
+constexpr inline vfl& operator&=(vfl& a, vfl b) { a = (vfl)((unsigned)a & (unsigned)b); return a; }
 
-	// mask to get only the version part
-	ver_mask					= 0x00ffu,
-	ver_mask_bits				= 8
+constexpr static const u16 no_version = (u16)vfl::no_version;
+
+#define PULMOTOR_TEXT_INTERNAL_PREFIX "pulM"
+
+struct prefix
+{
+    constexpr bool store() const { return version == (unsigned)vfl::no_prefix; }
+
+    constexpr bool is_versioned() const { return version != (unsigned)vfl::no_version; }
+    constexpr bool is_default_version() const { return version == (unsigned)vfl::default_version; }
+
+    constexpr bool is_nullptr() const { return (flags & vfl::null_ptr) != 0; }
+    constexpr bool wants_construct() const { return (flags & vfl::wants_construct) != 0; }
+
+    constexpr bool has_garbage() const { return (flags & vfl::garbage) != 0; }
+    constexpr bool has_dbgstr() const { return (flags & vfl::debug_string) != 0; }
+    constexpr bool is_aligned() const { return (flags & vfl::align_object) != 0; }
+
+    constexpr prefix reflag(vfl set, vfl clear = vfl::none) const {
+        return prefix { version, (flags & ~clear) | set };
+    }
+
+    u16 version;
+    vfl flags;
+};
+
+struct prefix_ext
+{
+    std::string class_name;
+//    std::string comment;
 };
 
 struct target_traits
 {
-	// size of the pointer in bits
-	size_t	ptr_size;
-	bool	big_endian;
+    // size of the pointer in bits
+    size_t	ptr_size;
+    bool	big_endian;
 
-	static target_traits const current;
+    static target_traits const current;
 
-	static target_traits const le_lp32;
-	static target_traits const be_lp32;
+    static target_traits const le_lp32;
+    static target_traits const be_lp32;
 
-	static target_traits const le_lp64;
-	static target_traits const be_lp64;
+    static target_traits const le_lp64;
+    static target_traits const be_lp64;
 };
 
 template<class T, class = void> struct has_version_member : std::false_type {};
 template<class T>               struct has_version_member<T, std::void_t<char [(std::is_convertible<decltype(T::version), unsigned>::value) ? 1 : -1]> > : std::true_type {};
 
-template<class T> struct class_version { static unsigned constexpr value = version_default; };
+template<class T> struct class_version	: std::integral_constant<unsigned, 0U> {};
+template<class T> struct class_flags	: std::integral_constant<unsigned, 0U> {};
+template<class T> struct type_align	    : std::integral_constant<unsigned, alignof(T)> {};
 
-template<class T, class = void>
-struct get_meta : std::integral_constant<unsigned,
-	(unsigned)class_version<T>::value == (unsigned)no_version
-		? (unsigned)ver_flag_no_version|0u
-		: (unsigned)class_version<T>::value>
-{};
+#define PULMOTOR_DECL_VERSION(T, V) \
+    template<> struct ::pulmotor::class_version<T> : std::integral_constant<unsigned, (unsigned)V> {}
+
+#define PULMOTOR_DECL_VERFLAGS(T, V, F) \
+    template<> struct ::pulmotor::class_version<T> : std::integral_constant<unsigned, (unsigned)V> {}; \
+    template<> struct ::pulmotor::class_flags<T> : std::integral_constant<unsigned, (unsigned)F> {}
+
+namespace impl
+{
+    template<class T, class = void > struct has_version : std::false_type {};
+    template<class T>                struct has_version<T, std::void_t< decltype(T::version) > > : std::true_type {};
+
+    template<class T, class = void > struct version : std::integral_constant<unsigned, class_version<T>::value> {};
+    template<class T>                struct version<T, std::void_t<decltype(T::version)> > : std::integral_constant<unsigned, T::serialize_version> {};
+
+    template<class T>
+    struct flags : std::integral_constant<vfl, !has_version<T>::value ? vfl::no_version : vfl::none> {};
+}
+
 template<class T>
-struct get_meta<T, std::void_t< decltype(T::version) > > : std::integral_constant<unsigned,
-	(unsigned)T::version == (unsigned)no_version
-		? (unsigned)ver_flag_no_version|0u
-		: (unsigned)T::version>
-{};
+struct type_util
+{
+    using has_version = impl::has_version<T>;
+    using version = impl::version<T>;
+    using flags = impl::flags<T>;
+    using align = type_align<T>;
+
+    static constexpr prefix extract_prefix() { return prefix{ version::value, flags::value }; }
+};
+
+
+
+// template<class T, class = void>
+// struct get_meta : std::integral_constant<unsigned,
+// 	(unsigned)class_version<T>::value == (unsigned)no_version
+// 		? (unsigned)ver_flag_no_version|0u
+// 		: (unsigned)class_version<T>::value>
+// {};
+// template<class T>
+// struct get_meta<T, std::void_t< decltype(T::version) > > : std::integral_constant<unsigned,
+// 	(unsigned)T::version == (unsigned)no_version
+// 		? (unsigned)ver_flag_no_version|0u
+// 		: (unsigned)T::version>
+// {};
 
 #define PULMOTOR_VERSION(T, v) template<> struct ::pulmotor::class_version<T> { enum { value = v }; }
 
@@ -103,97 +172,88 @@ unsigned rand_range(romu_q32& rnd, unsigned range);
 
 struct romu3
 {
-	using result_type = uint64_t;
-	constexpr static result_type min() { return 0; }
-	constexpr static result_type max() { return UINT64_MAX; }
+    using result_type = uint64_t;
+    constexpr static result_type min() { return 0; }
+    constexpr static result_type max() { return UINT64_MAX; }
 
-	#define PULMOTOR_ROTL(d,lrot) ((d<<(lrot)) | (d>>(8*sizeof(d)-(lrot))))
-	uint64_t xState=0xe2246698a74e50e0ULL, yState=0x178cd4541df4e31cULL, zState=0x704c7122f9cfbd76ULL;
+    #define PULMOTOR_ROTL(d,lrot) ((d<<(lrot)) | (d>>(8*sizeof(d)-(lrot))))
+    uint64_t xState=0xe2246698a74e50e0ULL, yState=0x178cd4541df4e31cULL, zState=0x704c7122f9cfbd76ULL;
 
-	void seed(uint64_t a, uint64_t b,uint64_t c) { xState=a; yState=b; zState=c; }
-	void reset() { *this = romu3(); }
-	uint64_t operator() () {
-		uint64_t xp = xState, yp = yState, zp = zState;
-		xState = 15241094284759029579u * zp;
-		yState = yp - xp;  yState = PULMOTOR_ROTL(yState,12);
-		zState = zp - yp;  zState = PULMOTOR_ROTL(zState,44);
-		return xp;
-	}
+    void seed(uint64_t a, uint64_t b,uint64_t c) { xState=a; yState=b; zState=c; }
+    void reset() { *this = romu3(); }
+    uint64_t operator() () {
+        uint64_t xp = xState, yp = yState, zp = zState;
+        xState = 15241094284759029579u * zp;
+        yState = yp - xp;  yState = PULMOTOR_ROTL(yState,12);
+        zState = zp - yp;  zState = PULMOTOR_ROTL(zState,44);
+        return xp;
+    }
 
-	unsigned range(unsigned mx) { return rand_range(*this, mx); }
+    unsigned range(unsigned mx) { return rand_range(*this, mx); }
 };
 
 struct romu_q32
 {
-	u32 state[4];
+    u32 state[4];
 
-	using result_type = u32;
+    using result_type = u32;
 
-	constexpr static result_type min() { return 0; }
-	constexpr static result_type max() { return UINT32_MAX; }
+    constexpr static result_type min() { return 0; }
+    constexpr static result_type max() { return UINT32_MAX; }
 
-	constexpr void seed(u32 w, u32 x, u32 y, u32 z) {
-		state[0] = w;
-		state[1] = x;
-		state[2] = y;
-		state[3] = z;
-	}
+    constexpr void seed(u32 w, u32 x, u32 y, u32 z) {
+        state[0] = w;
+        state[1] = x;
+        state[2] = y;
+        state[3] = z;
+    }
 
-	constexpr void init() {
-		seed(0xdbf64230, 0x9c248ed8, 0x6a11e8b8, 0x9bca720f);
-	}
+    constexpr void init() {
+        seed(0xdbf64230, 0x9c248ed8, 0x6a11e8b8, 0x9bca720f);
+    }
 
-	constexpr u32 operator()() {
-		uint32_t wp = state[0], xp = state[1], yp = state[2], zp = state[3];
-		state[0] = 3323815723u * zp;  // a-mult
-		state[1] = zp + PULMOTOR_ROTL(wp,26);  // b-rotl, c-add
-		state[2] = yp - xp;           // d-sub
-		state[3] = yp + wp;           // e-add
-		state[3] = PULMOTOR_ROTL(state[3],9);    // f-rotl
-		return xp;
-	}
+    constexpr u32 operator()() {
+        uint32_t wp = state[0], xp = state[1], yp = state[2], zp = state[3];
+        state[0] = 3323815723u * zp;  // a-mult
+        state[1] = zp + PULMOTOR_ROTL(wp,26);  // b-rotl, c-add
+        state[2] = yp - xp;           // d-sub
+        state[3] = yp + wp;           // e-add
+        state[3] = PULMOTOR_ROTL(state[3],9);    // f-rotl
+        return xp;
+    }
 
-	unsigned range(unsigned mx) { return rand_range(*this, mx); }
-};
-
-struct object_meta
-{
-	object_meta() : flags_and_version(0) {}
-	object_meta(unsigned flags_and_ver) : flags_and_version(flags_and_ver) {}
-	object_meta(object_meta const&) = default;
-	object_meta& operator=(object_meta const&) = default;
-
-	unsigned version() const { return flags_and_version & ver_mask; }
-	unsigned is_nullptr() const { return flags_and_version & ver_flag_null_ptr; }
-	bool include_version() const { return (flags_and_version & ver_flag_no_version) == 0; }
-	void set_version(unsigned ver) { flags_and_version = (flags_and_version&~ver_mask) | (ver&ver_mask); }
-
-	operator unsigned() const { return flags_and_version & ver_mask; }
-
-private:
-	unsigned flags_and_version; // version and flags
+    unsigned range(unsigned mx) { return rand_range(*this, mx); }
 };
 
 template<class T>
 struct nv_t
 {
-	using value_type = T;
+    using value_type = T;
 
-	char const* name;
-	T& obj;
-	size_t name_length;
+    char const* name;
+    size_t name_length;
+    T obj;
 
-	nv_t(char const* name_, size_t namelength, T const& o)
-		: name(name_), name_length(namelength), obj(const_cast<T&>(o))
-		{}
-	nv_t(nv_t const& o) = default;
+    // nv_t(char const* name_, size_t namelength, T const& o)
+    //     : name(name_), name_length(namelength), obj(const_cast<T&>(o))
+    //     {}
+    // nv_t(nv_t const& o) = default;
+
+    std::string_view get_nameview() const { return std::string_view(name, name_length); }
 };
 
 template<class T>
-inline nv_t<T> nvl( char const* name, T const& a) { return nv_t<T>(name, strlen(name), a); }
+constexpr inline nv_t<T> nvl( char const* name, T const& a) { return nv_t<T>(name, strlen(name), a); }
 
 template<class T, size_t N>
-inline nv_t<T> nv( char const (&name)[N], T const& a) { return nv_t<T>(name, N, a); }
+    requires (std::is_scalar<T>::value)
+// constexpr inline nv_t<T> nv( char const (&name)[N], T const& a) { return nv_t<T>(name, N - 1, a); }
+constexpr inline nv_t<T> nv( char const (&name)[N], T a) { return nv_t<T>{ name, N-1, a }; }
+
+template<class T, size_t N>
+    requires (!std::is_scalar<T>::value)
+// constexpr inline nv_t<T> nv( char const (&name)[N], T const& a) { return nv_t<T>(name, N - 1, a); }
+constexpr inline nv_t<T&> nv( char const (&name)[N], T const& a) { return nv_t<T&>{ name, N-1, const_cast<T&>(a) }; }
 
 template<class T>
 struct is_nv : std::false_type {};
@@ -207,31 +267,31 @@ template<class T> 			struct delete_holder<T,void> { void de(T*) const { } };
 template<class T, class C, class D = delete_holder<T, void> >
 struct ctor : D
 {
-	static_assert(std::is_same<T, typename std::remove_cv<T>::type>::value);
+    static_assert(std::is_same<T, typename std::remove_cv<T>::type>::value);
 
-	using type = T;
+    using type = T;
 
-	T** ptr;
-	C const& cf;
+    T** ptr;
+    C const& cf;
 
-	ctor(T** p, C const& c) : ptr(p), cf(c) {}
-	ctor(T** p, C const& c, D const& d) : D(d), ptr(p), cf(c) {}
+    ctor(T** p, C const& c) : ptr(p), cf(c) {}
+    ctor(T** p, C const& c, D const& d) : D(d), ptr(p), cf(c) {}
 
-	template<class... Args> auto operator()(Args&&... args) const { return cf(args...); }
+    template<class... Args> auto operator()(Args&&... args) const { return cf(args...); }
 };
 
 template<class T, class C, class D = delete_holder<T, void> >
 struct ctor_pure : D
 {
-	static_assert(std::is_same<T, typename std::remove_cv<T>::type>::value);
+    static_assert(std::is_same<T, typename std::remove_cv<T>::type>::value);
 
-	using type = T;
-	C const& cf;
+    using type = T;
+    C const& cf;
 
-	ctor_pure(C const& c) : cf(c) {}
-	ctor_pure(C const& c, D const& d) : D(d), cf(c) {}
+    ctor_pure(C const& c) : cf(c) {}
+    ctor_pure(C const& c, D const& d) : D(d), cf(c) {}
 
-	template<class... Args> auto operator()(Args&&... args) const { return cf(args...); }
+    template<class... Args> auto operator()(Args&&... args) const { return cf(args...); }
 };
 
 
@@ -255,15 +315,15 @@ template<class T> struct is_nvp<nv_t<T>> : public std::true_type {};
 template<class AsT, class ActualT>
 struct as_holder
 {
-	ActualT& m_actual;
-	explicit as_holder (ActualT& act) : m_actual(act) {}
+    ActualT& m_actual;
+    explicit as_holder (ActualT& act) : m_actual(act) {}
 };
 
 template<class AsT, class ActualT>
 inline as_holder<AsT, ActualT> as (ActualT& act)
 {
-	// Actual may be const qualified. We actually want that so that as works when writing, with const types
-	return as_holder<AsT, ActualT> (act);
+    // Actual may be const qualified. We actually want that so that as works when writing, with const types
+    return as_holder<AsT, ActualT> (act);
 }*/
 
 } // pulmotor

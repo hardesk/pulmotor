@@ -1,3 +1,0 @@
-: archive-tests 
-$* -nv 1>- == 0
-

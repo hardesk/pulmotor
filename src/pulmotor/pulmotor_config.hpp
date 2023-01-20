@@ -35,4 +35,8 @@
 #define PULMOTOR_UNUSED(x) ((void)x)
 //#define PULMOTOR_STIR_PATH_SUPPORT 1
 
+#ifndef PULMOTOR_DEBUG_SERIALIZE
+#define PULMOTOR_DEBUG_SERIALIZE 0
+#endif
+
 #endif
