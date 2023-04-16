@@ -8,12 +8,15 @@
             "type": "shell",
             "command": "ninja",
             "options": {
-                "cwd": "${workspaceFolder}/b1"
+                "cwd": "${workspaceFolder}/b_debug"
             },
             "problemMatcher": ["$gcc"],
             "group": {
                 "kind": "build",
                 "isDefault": true
+            },
+            "presentation": {
+                "clear": true
             }
         }
     ]
