@@ -21,6 +21,7 @@
 #include "archive.hpp"
 #include "stream.hpp"
 #include "util.hpp"
+#include "yaml_emitter.hpp"
 
 #include <c4/std/string.hpp>
 #include <ryml.hpp>
@@ -41,6 +42,27 @@ namespace yaml {
     struct encoder;
     struct writer;
 }
+
+
+struct u8p_exp // 3b exp + 5b mantisa (positive only): 2^7*32
+{
+    static unsigned unpack(u8 x) {
+        unsigned e = x >> 5, m = x&0x1f;
+        return (1 << e) * 32;
+    }
+
+    static u8 pack(unsigned x) {
+        unsigned ee = x >> 5;
+        if (ee == 0)
+            return x;
+
+        unsigned l = (sizeof(x)*8-1) - std::countl_zero(ee);
+        if (l > 7) l = 7;
+
+        unsigned m = (x >> l) & 0x1f;
+        return (l << 5) | m;
+    }
+};
 
 struct yaml_document
 {
@@ -241,7 +263,7 @@ struct archive_yaml_in
 
 enum class yaml_data_format
 {
-    array, base64
+    array = 0, base64 = 1
 };
 
 /*
@@ -438,6 +460,8 @@ private:
     bool m_implicit_mapping = false;
 };*/
 
+struct yaml_base64;
+
 struct archive_yaml
 {
     enum flags
@@ -446,39 +470,69 @@ struct archive_yaml
         no_stream = 0x08,
         keyed = 0x01
     };
+
+    enum modes
+    {
+        base64 = 1
+    };
 };
+inline constexpr archive_yaml::flags operator|(archive_yaml::flags a, archive_yaml::flags b) { return (archive_yaml::flags)((int)a | (int)b); }
 
 struct archive_write_yaml : public archive
 {
-    yaml::writer& m_writer;
+    yaml::writer1& m_writer;
     archive_yaml::flags m_flags;
+
+    using supported_mods = tl::list<yaml_base64>;
 
     enum { is_reading = 0, is_writing = 1 };
 
-    struct state {
-        u16 wrap;
-        u8 flags;
-        u8 reserved;
+    enum state
+    {
+        st_clear  = 0,
+        st_pending_prepare = 0x01,
+        st_base64 = 0x02,
+        // st_primitive = 0x20,
+        st_mapping = 0x80,
+        st_array = 0x40,
     };
-    state m_state = state{};
-    std::vector<state> m_sstack;
-    bool m_forced_mapping = false;
-    bool m_stream = false;
+    struct scope {
+        u16 wrap = 0;
+        u8 flags = 0; // fmt_flags
+        u8 state = 0;
+        prefix obj_prefix;
+        bool base64 = false;
+    };
+    scope m_scope = scope{};
+    std::vector<scope> m_sstack;
 
-    archive_write_yaml(yaml::writer& w, archive_yaml::flags flags = archive_yaml::none);
+    std::string m_object_debug_str;
 
-    void start_stream();
+    // int m_written = 0;
+
+    archive_write_yaml(yaml::writer1& w, archive_yaml::flags flags = archive_yaml::none);
+    ~archive_write_yaml();
+
+    // void start_stream();
+
+    scope& current_scope() { return m_scope; }
+    void restore_scope(scope const& s) { m_scope = s; }
+
+    scope fresh_scope() { return scope{}; }
 
     void begin_object();
     void end_object();
-    void begin_array();
+    void begin_array(size_t& size);
     void end_array();
 
-    void write_name(std::string_view name) {
+    template<class T>
+    void write_named(std::string_view name, T const& value) {
+        assert (m_flags & archive_yaml::keyed);
         write_key(name);
+        *this | value;
     }
 
-    void write_string(std::string_view s);
+    void prepare_container(scope& sc);
 
     template<std::integral T>
     void write_single (T const& data) {
@@ -493,18 +547,29 @@ struct archive_write_yaml : public archive
         write_float(data);
     }
 
-   template<class T>
+    void write_single (std::string const& data) { write_string(data); }
+
+    template<class T, unsigned Mode = 0>
     void write_data (T const* src, size_t size) {
-        if constexpr (sizeof(T) == 1)
-            write_byte_array(src, size);
-        else
-            write_array(src, size);
+        if constexpr ((Mode & 0x01) == (unsigned)yaml_data_format::base64) {
+            encode_base64(src, size, (Mode & 0xff00) >> 8);
+        } else {
+            if constexpr (sizeof(T) == 1)
+                write_byte_array(src, size);
+            else
+                write_array(src, size);
+        }
     }
 
     void write_prefix(prefix pre, prefix_ext const* ppx = nullptr);
 
 protected:
+    void actually_write_prefix(scope& sc);
+    void actually_prepare_array(scope& sc);
+
     void write_key(std::string_view key);
+
+    void write_string(std::string_view s);
 
     void write_int(int value);
     void write_longlong(long long value);
@@ -512,20 +577,95 @@ protected:
 
     void write_byte_array(u8 const* data, size_t count);
     void write_array(bool const* data, size_t count);
-    void write_array(s16 const* data, size_t count);
     void write_array(u16 const* data, size_t count);
+    void write_array(s16 const* data, size_t count);
     void write_array(u32 const* data, size_t count);
     void write_array(s32 const* data, size_t count);
     void write_array(u64 const* data, size_t count);
     void write_array(s64 const* data, size_t count);
     void write_array(float const* data, size_t count);
     void write_array(double const* data, size_t count);
+    void write_array(std::string const* data, size_t count);
+
+    void encode_base64(void const* data, size_t size, size_t wrap);
+
+    template<class T>
+    void write_array_impl(T const* data, size_t count);
  };
+
+template<class Ch, class Tr, class Al>
+struct is_primitive_type<archive_write_yaml, std::basic_string<Ch, Tr, Al>> : std::integral_constant<bool, true> {};
+
+struct yaml_base64 : mod_op<yaml_base64> {
+    u8 wrap = 0;
+    constexpr void operator()(archive_write_yaml::scope& s) {
+        s.state |= archive_write_yaml::st_base64;
+        s.wrap = wrap;
+    }
+};
+
+struct yaml_fmt : mod_op<yaml_fmt> {
+    yaml::fmt_flags flags;
+
+    yaml_fmt(yaml::fmt_flags fl) : flags(fl) {}
+    constexpr void operator()(archive_write_yaml::scope& s) const {
+        s.flags |= flags;
+    }
+};
+
 
 struct archive_read_yaml
 {
+    yaml_document& y_doc;
+    size_t m_current;
+    // diagnostics m_diag;
+
+    archive_read_yaml (yaml_document& doc) : y_doc (doc) {
+        m_current = y_doc.y.root_id();
+    }
+
+    void begin_object() {
+        m_current = y_doc.y.first_child(m_current);
+    }
+    void end_object() {
+        m_current = y_doc.y.parent(m_current);
+    }
+
+    void begin_array(size_t& size) {
+        m_current = y_doc.y.first_child(m_current);
+        size = y_doc.y.num_siblings(m_current);
+    }
+    void end_array() {
+        m_current = y_doc.y.parent(m_current);
+    }
+
+    template<std::integral T>
+    void read_named(std::string_view name, T& value) {
+        read_integral(name, value);
+    }
+
+    template<std::floating_point T>
+    void read_named(std::string_view name, T& value) {
+        read_float(name, value);
+    }
+
+    template<class T, class Y, class Tr, class Al>
+        requires (std::is_same_v<std::basic_string<Y, Tr, Al>, T>)
+    void read_named(std::string_view name, T& value) {
+        read_string(name, value);
+    }
+
     template<class T>
     void read_single(T& data) {
+        // ryml::Tree const& y = y_doc.y;
+        // assert( m_current < y.size() );
+        // size_t curr = m_current;
+        // ryml::NodeData const* v = find_with_retry(y, m_current, ryml::csubstr(name, name_len));
+        // ryml::from_chars(v->m_val.scalar, &data);
+    }
+
+    size_t get_array_size() {
+        return y_doc.y.num_children(m_current);
     }
 
     template<class T>
@@ -535,7 +675,29 @@ struct archive_read_yaml
     prefix read_prefix(prefix_ext* ext);
 
 private:
+    ryml::NodeData const* find_node(std::string_view name);
+
+    void read_string(std::string_view name, std::string_view s);
+    void read_integral(std::string_view name, int value);
+    void read_integral(std::string_view name, long long value);
+    void read_float(std::string_view name, float& value);
+    void read_float(std::string_view name, double& value);
+
+    void read_byte_array(u8* data);
+    void read_array(bool* data);
+    void read_array(s16* data);
+    void read_array(u16* data);
+    void read_array(u32* data);
+    void read_array(s32* data);
+    void read_array(u64* data);
+    void read_array(s64* data);
+    void read_array(float* data);
+    void read_array(double* data);
+
 };
+
+template<class Ch, class Tr, class Al>
+struct is_primitive_type<archive_read_yaml, std::basic_string<Ch, Tr, Al>> : std::integral_constant<bool, true> {};
 
 // struct moo
 // {

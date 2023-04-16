@@ -6,8 +6,11 @@
 
 #include "stream.hpp"
 
-#if defined(__GNUC__) && 0
-#include <demangle.h>
+#define PULMOTOR_DEMANGLE_SUPPORT 1
+
+#if PULMOTOR_DEMANGLE_SUPPORT
+#include <cxxabi.h>
+// #include <demangle.h>
 #endif
 
 #include <cxxabi.h>
@@ -65,7 +68,7 @@ std::string abi_demangle(char const* mangled)
     return ret;
 }
 
-// encode: if don't fit into container (eg. 31bit), set hibit and store the rest as value (eg. 31bit)
+// encode quantity as a series of T (LSB first) where hi bit idicates (==1) if next T value needs to be processed when decoding.
 template<class T>
 inline size_t euleb_impl(size_t quantity, T* o) {
 
@@ -86,7 +89,7 @@ inline size_t euleb_impl(size_t quantity, T* o) {
     return i;
 }
 
-// decode: if hibit set, set it to 0 and expect another word
+// decode: hi-bit indicates (==1) if more data is expected. On finish, `state' holds decoded length. state must be zero on first call.
 template<class T>
 inline bool duleb_impl(size_t& quantity, int& state, T v) {
 
@@ -141,7 +144,7 @@ void base64_encode(char const* src, size_t raw_length, char* dest, base64_option
     }
 
     if (rem) {
-        assert (rem != 0 && rem <= 2);
+        assert (rem <= 2);
 
         u8 a=src[i+0], b=0;
         *dest++ = base64enc_byte(a >> 2);
@@ -257,8 +260,16 @@ have_data:
 
 std::string dm (char const* a)
 {
-#if defined(__GNUC__) && 0
-    return cplus_demangle (a, 0);
+#if PULMOTOR_DEMANGLE_SUPPORT
+    // return cplus_demangle (a, 0);
+    char output[1024];
+    size_t len = sizeof(output);
+    int status = 0;
+    char* realname = abi::__cxa_demangle(a, output, &len, &status);
+    if (status == 0)
+        return std::string(realname, len);
+    else
+        return std::string(a);
 #else
     return a;
 #endif
@@ -302,7 +313,7 @@ std::string hexstring (void const* p, size_t len)
     for (size_t i=0; i<len; ++i)
     {
         char buff[4];
-        snprintf(buff, sizeof buff, "%02x ", src[i]);
+        snprintf(buff, sizeof buff, "%02x ", (unsigned)(unsigned char)src[i]);
         ret += std::string_view(buff, i == len-1 ? 2 : 3);
     }
     return ret;
@@ -325,6 +336,23 @@ void throw_error(err e, char const* msg, char const* filename, text_location loc
     throw yaml_error(e, msg, loc, filename);
 #else
     vprintf("%s:%d:%d: error(%d): %s\n", filename, (int)loc.line, (int)loc.col, (int)e, msg);
+#endif
+}
+
+void throw_fmt_error(char const* filename, text_location loc, char const* msg, ...)
+{
+    va_list vl;
+    va_start(vl, msg);
+#if PULMOTOR_EXCEPTIONS
+    char buf[512];
+    if (int w = std::snprintf(buf, sizeof buf, "%s:%d: ", filename, loc.line)) {
+        std::vsnprintf(buf + w, sizeof buf - w, msg, vl);
+    }
+    va_end(vl);
+    throw error(err_unspecified, buf);
+#else
+    vprintf(msg, vl);
+    va_end(vl);
 #endif
 }
 

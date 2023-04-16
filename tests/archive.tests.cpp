@@ -22,22 +22,25 @@ struct ar_check
 {
     using v_t = std::vector<char>;
 
-    static T one(v_t& v) {
-        T a = *(T const*)&v[0];
+    static T const& peek(v_t const& v) {
+        T const& a = *(T const*)&v[0];
         return a;
     }
-    static T pull(v_t& v, size_t& offset) {
+    static T pull(v_t const& v, size_t& offset) {
         T a = *(T const*)&v[offset];
         offset += sizeof(T);
         return a;
     }
-    static std::string pull_str(v_t& v, size_t& offset) {
-        T l = *(T const*)&v[offset];
-        offset += sizeof(l);
-
+    static std::string pull_str(v_t const& v, size_t& offset) {
+        size_t l = pull_vu(v, offset);
         std::string ss(&v[offset], l);
         offset += l;
         return ss;
+    }
+    static size_t pull_vu(v_t const& v, size_t& offset) {
+        size_t value = 0;
+        offset += util::decode(value, (T const*)&v[offset]) * sizeof(T);
+        return value;
     }
 };
 
@@ -179,13 +182,13 @@ void print_tuple( std::tuple<Args...>&& a )
     print_tuple_impl( a, std::make_index_sequence<sizeof...(Args)>() );
 }
 
-void serialize_test1(pulmotor::archive_sink& ar, std::string const& s);
+void serialize_test1(pulmotor::archive_memory& ar, std::string const& s);
 
 TEST_CASE("pulmotor archive")
 {
     pulmotor::sink_ostream ss(std::cout);
     pulmotor::archive_sink as(ss);
-    serialize_test1(as, "hello");
+    // serialize_test1(as, "hello");
 
     SUBCASE("print tuple")
     {
@@ -234,8 +237,8 @@ TEST_CASE("pulmotor archive")
             source_buffer sb(DAT, 2);
             archive_whole ar(sb);
             char a, x;
-            ar.read_basic(a);
-            ar.read_basic(x);
+            ar.read_single(a);
+            ar.read_single(x);
             CHECK(a == DAT[0]);
             CHECK(x == DAT[1]);
         }
@@ -290,57 +293,63 @@ TEST_CASE("pulmotor archive")
 
         char data[]="hello";
         ar.write_data(data, strlen(data));
-        CHECK(!ar.ec);
 
         CHECK(ss.str() == data);
     }
 
     SUBCASE("version")
     {
-        struct A { int x; };
-        A a{10};
+        struct X { enum { version = 1337 }; int x; };
+        X x{10};
+
+        pulmotor::sink_vector sv;
 
         SUBCASE("basic")
         {
-            pulmotor::archive_vector_out ar;
-            ar.write_object_prefix(&a, 1337);
-            CHECK(ar_check<u32>::one(ar.data) == 1337);
+            pulmotor::archive_sink ar(sv);
+            ar.write_prefix(prefix{ 1337, vfl::none });
+            size_t offset = 0;
+            CHECK(ar_check<prefix>::pull(sv.data(), offset) == prefix{ 1337, vfl::none });
+            CHECK(sv.data().size() == sizeof(prefix));
         }
 
         SUBCASE("typename")
         {
-            pulmotor::archive_vector_out ar(ver_flag_debug_string);
-            ar.write_object_prefix(&a, 1337);
+            pulmotor::archive_sink ar(sv, vfl::debug_string);
+            prefix_ext pxe { "class.A" };
+            ar.write_prefix(prefix{ 1337, vfl::none }, &pxe);
 
             size_t offset = 0;
-            CHECK((ar_check<u32>::pull(ar.data, offset) & ver_mask) == 1337);
-            CHECK(ar_check<u32>::pull_str(ar.data, offset) == typeid(A).name());
+            prefix px { 1337, vfl::garbage|vfl::debug_string };
+            CHECK(ar_check<prefix>::pull(sv.data(), offset) == px);
+            CHECK(ar_check<u16>::pull(sv.data(), offset) == 8);
+            CHECK(ar_check<pulmotor::prefix_vu_t>::pull_str(sv.data(), offset) == "class.A");
         }
 
-        size_t al = archive_vector_out::forced_align;
+        size_t al = pulmotor::forced_align_value;
         SUBCASE("forced align")
         {
-            pulmotor::archive_vector_out ar(ver_flag_align_object);
-            ar.write_object_prefix(&a, 1337);
-            CHECK(ar.offset() == al);
+            pulmotor::archive_sink ar(sv, vfl::debug_string|vfl::align_object);
+            ar.write_prefix(prefix{1337, vfl::none});
+            CHECK(util::is_aligned(ar.offset(), al));
 
             size_t offset = 0;
-            CHECK((ar_check<u32>::pull(ar.data, offset) & ver_mask) == 1337);
-            size_t garbage = ar_check<u32>::pull(ar.data, offset);
-            CHECK( (offset + garbage) == al);
+            CHECK(ar_check<prefix>::pull(sv.data(), offset) == prefix {1337, vfl::garbage|vfl::align_object});
+            u16 garbage = ar_check<u16>::pull(sv.data(), offset);
+            CHECK((offset + garbage) == al);
         }
 
         SUBCASE("forced string+align")
         {
-            pulmotor::archive_vector_out ar(ver_flag_debug_string|ver_flag_align_object);
-            ar.write_object_prefix(&a, 1337);
-            CHECK(ar.offset() == al);
+            pulmotor::archive_sink ar(sv, vfl::align_object|vfl::debug_string);
+            prefix_ext pxe { "class.X" };
+            ar.write_prefix( prefix{ 1337, vfl::none }, &pxe);
 
             size_t offset = 0;
-            CHECK((ar_check<u32>::pull(ar.data, offset) & ver_mask) == 1337);
-            size_t garbage = ar_check<u32>::pull(ar.data, offset);
+            CHECK(ar_check<prefix>::pull(sv.data(), offset) == prefix{ 1337, vfl::garbage|vfl::align_object|vfl::debug_string });
+            u16 garbage = ar_check<u16>::pull(sv.data(), offset);
             CHECK(offset + garbage == al);
-            CHECK(ar_check<u32>::pull_str(ar.data, offset) == typeid(A).name());
+            CHECK(ar_check<prefix_vu_t>::pull_str(sv.data(), offset) == "class.X");
         }
     }
 }
@@ -433,33 +442,39 @@ TEST_CASE("size packing")
 
 namespace
 {
-    struct set_one : mod_op<set_one> {
-        template<class Ar, class Ctx> void operator()(Ar& ar, Ctx& ctx) {
-            ctx.one = 1;
+    struct arch1b;
+    struct arch2;
+    struct set_flag : mod_op<set_flag> {
+        set_flag(unsigned f) : flag(f) {}
+        unsigned flag = 0;
+        template<class State> void operator()(State& s) const {
+            s.flag |= flag;
         }
     };
-    struct set_value : mod_op<set_value> {
-        unsigned m_value;
-        set_value(unsigned v) : m_value(v) {}
-        set_value(set_value const&) = default;
-        template<class Ar, class Ctx> void operator()(Ar& ar, Ctx& ctx) {
-            ctx.value = m_value;
+    struct set_mode : mod_op<set_mode> {
+        unsigned mode = 0;
+        set_mode(unsigned m) : mode(m) {}
+        template<class State> void operator()(State& s) const {
+            s.mode = mode;
         }
     };
+
     struct arch0 {
     };
-    struct arch1 {
-        struct context { unsigned one = 0; unsigned value = 0; };
-        using supported_mods = tl::list<set_one>;
+    struct arch1a {
+        using supported_mods = tl::list<set_flag>;
+        unsigned flag = 0;
+        unsigned mode = 0;
+    };
+    struct arch1b {
+        using supported_mods = tl::list<set_mode>;
+        unsigned flag = 0;
+        unsigned mode = 0;
     };
     struct arch2 {
-        struct context { unsigned one = 0; unsigned value = 0; };
-        using supported_mods = tl::list<set_one, set_value>;
-    };
-    struct arch3 {
-        struct supports_kv {};
-        struct context { char const* key; unsigned one = 0; unsigned value = 0; };
-        using supported_mods = tl::list<set_one, set_value>;
+        using supported_mods = tl::list<set_flag, set_mode>;
+        unsigned flag = 0;
+        unsigned mode = 0;
     };
 }
 
@@ -468,41 +483,39 @@ TEST_CASE("mods test")
     SUBCASE("type check")
     {
         CHECK(has_supported_mods<arch0>::value == false);
-        CHECK(has_supported_mods<arch1>::value == true);
+        CHECK(has_supported_mods<arch1a>::value == true);
+        CHECK(has_supported_mods<arch1b>::value == true);
         CHECK(has_supported_mods<arch2>::value == true);
-
-        CHECK(supports_kv<arch2>::value == false);
-        CHECK(supports_kv<arch3>::value == true);
     }
 
-    SUBCASE("none")
     {
-        auto ml = 10 * set_one();
-        arch0 a0;
-        apply_mod_list(a0, a0, ml);
-    }
-
-    SUBCASE("applies")
-    {
-        auto ml = 10 * set_one() * set_value(2);
-        ar | x * encbase64(enc::array);
-        SUBCASE("1")
+        auto ml = 10 * set_flag(4u) * set_mode(10);
+        SUBCASE("mod none")
         {
-            arch1 a;
-            arch1::context ctx;
-            apply_mod_list(a, ctx, ml);
-            CHECK(ctx.one == 1);
-            CHECK(ctx.value == 0);
+            arch0 a0;
+            apply_serialization_mods(a0, ml);
         }
 
-        SUBCASE("2")
+        SUBCASE("mod 1")
         {
-            arch2 a;
-            arch2::context ctx;
-            apply_mod_list(a, ctx, ml);
-            CHECK(ctx.one == 1);
-            CHECK(ctx.value == 2);
+            arch1a a1a;
+            arch1b a1b;
+            apply_serialization_mods(a1a, ml);
+            apply_serialization_mods(a1b, ml);
+            CHECK(a1a.flag == 4);
+            CHECK(a1a.mode == 0);
+            CHECK(a1b.flag == 0);
+            CHECK(a1b.mode == 10);
         }
+
+        SUBCASE("mod 2")
+        {
+            arch2 a2;
+            apply_serialization_mods(a2, ml);
+            CHECK(a2.flag == 4);
+            CHECK(a2.mode == 10);
+        }
+
     }
 
 }

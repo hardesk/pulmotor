@@ -4,45 +4,6 @@
 namespace pulmotor {
 
 
-template<class T>
-concept align_policy = requires(T policy)
-{
-    { policy.align(fs_t(0), size_t(0u)) } -> std::convertible_to<fs_t>;
-};
-
-struct packed_align_policy
-{
-    template<std::unsigned_integral T>
-    constexpr T align(T offset, size_t naturalAlignment) { return offset; }
-};
-
-struct min_align_policy
-{
-    size_t min_alignment = 1;
-    template<std::unsigned_integral T>
-    constexpr T align(T offset, size_t naturalAlignment) {
-        return util::align(offset, min_alignment);
-    }
-};
-
-struct natural_align_policy
-{
-    template<std::unsigned_integral T>
-    constexpr T align(T offset, size_t naturalAlignment) {
-        return util::align(offset, naturalAlignment);
-    }
-};
-
-struct natural_min_align_policy
-{
-    size_t min_alignment;
-    template<std::unsigned_integral T>
-    constexpr T align(T offset, size_t naturalAlignment) {
-        size_t target = naturalAlignment > min_alignment ? naturalAlignment : min_alignment;
-        return util::align(offset, target);
-    }
-};
-
 size_t fill_sink(sink& s, size_t size, std::error_code& ec) {
     size_t written = 0;
     while(1) {
@@ -59,7 +20,7 @@ size_t fill_sink(sink& s, size_t size, std::error_code& ec) {
 }
 
 template<align_policy AlignPolicy>
-size_t write_with_error_check_impl(sink& sink_, std::error_code& ec, fs_t& offset, void const* src, size_t size, size_t naturalAlign, AlignPolicy ap) {
+size_t write_with_error_check_impl(sink& sink_, std::error_code& ec, fs_t& offset, void const* src, size_t size, size_t naturalAlign, AlignPolicy const& ap) {
 
     size_t written = 0;
     fs_t aligned = ap.align(offset, naturalAlign);
@@ -74,9 +35,9 @@ size_t write_with_error_check_impl(sink& sink_, std::error_code& ec, fs_t& offse
     return written;
 }
 
-PULMOTOR_NOINLINE void archive_sink::write_with_error_check(void const* src, size_t size, size_t align) {
+PULMOTOR_NOINLINE void archive_sink::write_with_error_check(void const* src, size_t size, size_t alignment) {
     std::error_code ec;
-    written_ += write_with_error_check_impl(sink_, ec, written_, src, size, align, natural_align_policy{});
+    written_ += write_with_error_check_impl(sink_, ec, written_, src, size, alignment, *this);
     if (ec) PULMOTOR_THROW_SYSTEM_ERROR(ec, "error while writing data");
 }
 
@@ -155,76 +116,81 @@ error_writing:
 }
 #else
 
-// <version> <flags> [<garbage-len> [<name-len> <name>] [<align-data>] ]
+// <u16-version> <u16-flags> [<u16-garbage-len> [<vu-name-len> <chararr-name>] [<arr-align-data>] ]
 template<class AlignPolicy>
-size_t binary_write_prefix(sink& sink_, std::error_code& ec, fs_t& offset, vfl flags, prefix pre, prefix_ext const* ppx, AlignPolicy ap) {
+size_t binary_write_prefix(sink& sink_, std::error_code& ec, fs_t offset, vfl flags, prefix pre, prefix_ext const* ppx, AlignPolicy ap) {
 
-    size_t forced_align = 32;
-    fs_t block_size = sizeof(pre);
-    u16 garbage_len = 0, align_fill_size = 0, name_length = 0;
+    size_t align_ext = ap.align(1u, type_align<u16>::value) * 4; // 4: three for version+flags+garbage-len and one for vu-name-len
+    size_t buff_size = (size_t)vfl::debug_string_max_size + forced_align_value * 2 + align_ext;
+    char* buffer = (char*)alloca(buff_size);
 
-    auto store = [&ap](char* buffer, size_t off, size_t align, void const* data, size_t size) -> size_t
+    auto store = [&ap, buffer](size_t off, size_t align, void const* data, size_t size) -> size_t
     {
         size_t aligned = ap.align(off, align);
         if (aligned != off)
             memset(buffer + off, 0, aligned - off);
         memcpy(buffer + aligned, data, size);
         return aligned + size;
-    };
+   };
 
-    char* buffer = (char*)alloca((size_t)vfl::debug_string_max_size + forced_align * 2 + 4 * 4);
-    size_t buff_start = offset & (forced_align-1);
-    size_t boffset = buff_start;
+   auto align_only = [&ap, buffer](size_t off, size_t align) -> size_t {
+        size_t aligned = ap.align(off, align);
+        if (aligned != off)
+            memset(buffer + off, 0, aligned - off);
+        return aligned;
+   };
 
-    boffset = store(buffer, boffset, sizeof pre.version, &pre.version, sizeof pre.version);
+    // We want to start "building" data with an offset that matches the global offset, otherwise alignments may be calculated wrong.
+    size_t boffset = offset & (forced_align_value-1);
+    size_t buff_start = boffset;
 
     // We want to be able to skip all garbage between version-flag and the object data in one go
     // when reading. Thus if anything extra we mark that we have garbage and include that flag.
 
     if (ppx) pre.flags |= vfl::debug_string; else pre.flags &= vfl::debug_string;
+    if ((flags & vfl::align_object) != 0) pre.flags |= vfl::align_object;
+    if ((pre.flags & (vfl::align_object|vfl::debug_string)) != 0) pre.flags |= vfl::garbage;
 
-    if (((pre.flags & flags) & vfl::debug_string) != 0) {
-        pre.flags |= vfl::garbage;
-        block_size += sizeof garbage_len;
-
+    u16 name_length = 0;
+    if ((pre.flags & vfl::debug_string) != 0) {
+        assert(ppx);
         name_length = ppx->class_name.size();
-        if (name_length > (u16)vfl::debug_string_max_size) name_length = (u16)vfl::debug_string_max_size;
-        block_size += sizeof name_length + name_length;
+        if (name_length > (u16)vfl::debug_string_max_size)
+            name_length = (u16)vfl::debug_string_max_size;
     }
 
-    if ((flags & vfl::align_object) != 0) {
-        fs_t obj_start = util::align(boffset + block_size, forced_align);
-        garbage_len = obj_start - boffset - sizeof garbage_len;
-        align_fill_size = obj_start - (boffset + block_size);
-    }
-
-    // block_size += sizeof garbage_len + garbage_len;
-    assert((flags & vfl::align_object) == 0 || ((boffset + garbage_len + garbage_len) % forced_align) == 0);
-
-    boffset = store(buffer, boffset, sizeof pre.flags, &pre.flags, sizeof pre.flags);
+    boffset = store(boffset, type_align<prefix>::value, &pre, sizeof pre);
 
     if (pre.has_garbage()) {
-        boffset = store(buffer, boffset, sizeof garbage_len, &garbage_len, sizeof garbage_len);
+        size_t garbage_offset = boffset;
+        u16 garbage_len = 0;
+        boffset = store(boffset, type_align<u16>::value, &garbage_len, sizeof(u16));
 
-        if (pre.has_dbgstr() && ppx) {
-            boffset = store(buffer, boffset, sizeof name_length, &name_length, sizeof name_length);
-            boffset = store(buffer, boffset, 1, ppx->class_name.c_str(), name_length);
+        if (pre.has_dbgstr()) {
+            assert(ppx);
+            boffset = align_only(boffset, type_align<prefix_vu_t>::value);
+            boffset += util::euleb(name_length, (prefix_vu_t*)(buffer + boffset)) * sizeof(prefix_vu_t);
+            boffset = store(boffset, 1, ppx->class_name.c_str(), name_length);
         }
 
-        if (align_fill_size > 0) {
-            memset(buffer + boffset, 0, align_fill_size);
-            boffset += align_fill_size;
-        }
+        if (pre.is_aligned())
+            boffset = align_only(boffset, forced_align_value);
+
+        garbage_len = boffset - garbage_offset - sizeof(garbage_len);
+        store(garbage_offset, type_align<u16>::value, &garbage_len, sizeof garbage_len);
     }
 
+    assert(boffset <= buff_size && "buffer overrun");
+
     size_t write = boffset - buff_start;
-    sink_.write(buffer + buff_start, boffset - buff_start, ec);
+    sink_.write(buffer + buff_start, write, ec);
     return write;
 }
 #endif
 
-size_t binary_read_prefix_impl(source& src, std::error_code& ec, prefix& pre, prefix_ext* ppx) {
-    size_t was_read = 0, max_forced_align = 32;
+template<align_policy AlignPolicy>
+size_t binary_read_prefix_impl(source& src, std::error_code& ec, prefix& pre, prefix_ext* ppx, AlignPolicy ap) {
+    size_t was_read = 0, max_forced_align = forced_align_value;
 
     // <version> <flags> [<garbage-len> [<name-len> <name>] [<align-data>] ]
     was_read += src.fetch(&pre, sizeof pre, ec);
@@ -265,10 +231,18 @@ void archive_sink::align_stream(size_t al) {
 
 void archive_sink::write_prefix(prefix pre, prefix_ext const* ppx) {
     std::error_code ec;
-    written_ += binary_write_prefix(sink_, ec, written_, m_flags, pre, ppx, packed_align_policy{});
+    written_ += binary_write_prefix(sink_, ec, written_, m_flags, pre, ppx, data_align_policy{});
     if (ec) PULMOTOR_THROW_SYSTEM_ERROR(ec, "while writing prefix");
 }
 
+void archive_sink::write_size(size_t size) {
+    std::error_code ec;
+    vu_size_t temp[util::euleb_max<vu_size_t, size_t>::value];
+    size_t count = util::euleb(size, temp);
+    sink_.write(temp, count * sizeof(vu_size_t), ec);
+    if (ec) PULMOTOR_THROW_SYSTEM_ERROR(ec, "failed to write vu size");
+    written_ += count * sizeof(vu_size_t);
+}
 
 template<align_policy AlighPolicy>
 void read_aligned_with_error_check_impl(source& src, std::error_code& ec, void* dest, size_t size, size_t alignment, AlighPolicy ap)
@@ -290,38 +264,98 @@ void read_aligned_with_error_check_impl(source& src, std::error_code& ec, void* 
     src.fetch(dest, size, ec);
 }
 
-prefix archive_memory::read_prefix(prefix_ext* ext)
+// prefix archive_source::read_prefix(prefix_ext* ext)
+// {
+//     std::error_code ec;
+//     prefix pre;
+//     binary_read_prefix_impl(source_, ec, pre, ext, data_align_policy{});
+//     return pre;
+// }
+
+// size_t archive_source::read_size()
+// {
+//     size_t state = 0;
+//     return 0;
+// }
+
+// void archive_source::read_aligned_with_error_check(void* dest, size_t size, size_t alignment)
+// {
+//     std::error_code ec;
+//     if (source_.avail() < size) {
+//         source_.fetch(0, 0, ec);
+//         if (ec) PULMOTOR_THROW_SYSTEM_ERROR(ec, "failed to fetch data");
+//     }
+//     // assert(sizeof(T) <= source_.avail());
+//     // assert(util::is_aligned(m_offset, alignof(T)) && "stream alignment issues");
+
+//     read_aligned_with_error_check_impl(source_, ec, dest, size, alignment, data_align_policy{});
+//     if (ec) PULMOTOR_THROW_SYSTEM_ERROR(ec, "failed to read data");
+
+//     // // data = *reinterpret_cast<T*>(source_.data() + m_offset);
+//     // m_offset = util::align(m_offset, type_align<T>::value);
+//     // memcpy(&data, source_.data() + m_offset, sizeof data);
+//     // m_offset += sizeof data;
+//     // //source_.advance(sizeof(T), ec_);
+// }
+
+// void archive_source::read_aligned_with_error_check_p(void* dest, u64 sa)
+// {
+//     read_aligned_with_error_check(dest, sa >> 8, sa & 0xff);
+// }
+
+void archive_memory::read_single(void* data, size_t size)
 {
-    std::error_code ec;
-    prefix pre;
-    binary_read_prefix_impl(source_, ec, pre, ext);
-    return pre;
+    memcpy(data, m_data, size);
+    m_data += size;
 }
 
-void archive_memory::read_aligned_with_error_check(void* dest, size_t size, size_t alignment)
+prefix archive_memory::read_prefix(prefix_ext* px)
 {
-    std::error_code ec;
-    if (source_.avail() < size) {
-        source_.fetch(0, 0, ec);
-        if (ec) PULMOTOR_THROW_SYSTEM_ERROR(ec, "failed to fetch data");
+    prefix const* p = reinterpret_cast<prefix const*>(util::align(m_data, type_align<prefix>::value));
+    m_data = (char const*)p + sizeof(prefix);
+
+    if (p->has_garbage()) {
+        u16 const* garbage_len = (u16 const*)util::align(m_data, type_align<u16>::value);
+        if (p->has_dbgstr() && px) {
+            size_t name_len = 0;
+            char const* name_len_e = util::align((char const*)garbage_len + sizeof(u16), type_align<prefix_vu_t>::value);
+            char const* name_start = (char const*)garbage_len + sizeof(u16) + util::decode(name_len, (prefix_vu_t*)name_len_e) * sizeof(prefix_vu_t);
+            px->class_name = std::string_view(name_start, name_len);
+        }
+        m_data += *garbage_len;
     }
-    // assert(sizeof(T) <= source_.avail());
-    // assert(util::is_aligned(m_offset, alignof(T)) && "stream alignment issues");
 
-    read_aligned_with_error_check_impl(source_, ec, dest, size, alignment, natural_align_policy{});
-    if (ec) PULMOTOR_THROW_SYSTEM_ERROR(ec, "failed to read data");
-
-    // // data = *reinterpret_cast<T*>(source_.data() + m_offset);
-    // m_offset = util::align(m_offset, type_align<T>::value);
-    // memcpy(&data, source_.data() + m_offset, sizeof data);
-    // m_offset += sizeof data;
-    // //source_.advance(sizeof(T), ec_);
+    return *p;
 }
 
-void archive_memory::read_aligned_with_error_check_p(void* dest, u64 sa)
-{
-    read_aligned_with_error_check(dest, sa >> 8, sa & 0xff);
+void archive_memory::assing_unaligned(u8* p) {
+    *p = *(u8 const*)m_data;
+    m_data += sizeof(u8);
+}
+void archive_memory::assing_unaligned(u16* p) {
+    *p = *(u16 const*)m_data;
+    m_data += sizeof(u16);
+}
+void archive_memory::assing_unaligned(u32* p) {
+    *p = *(u32 const*)m_data;
+    m_data += sizeof(u32);
+}
+void archive_memory::assing_unaligned(u64* p) {
+    *p = *(u64 const*)m_data;
+    m_data += sizeof(u64);
+}
+
+size_t archive_memory::read_size() {
+    char const* p = (char const*)align((uintptr_t)m_data, type_align<vu_size_t>::value);
+
+    size_t size = 0;
+    size_t adv = util::decode(size, reinterpret_cast<vu_size_t const*>(p)) * sizeof(vu_size_t);
+    m_data += adv;
+    return size;
 }
 
 
 } // pulmotor
+
+
+pulmotor::XXX xx;

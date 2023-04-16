@@ -5,13 +5,16 @@
 #include "pulmotor_types.hpp"
 #include <cstring>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 #include <algorithm>
 #include <utility>
 #include <stdint.h>
 #include <cstdio>
 #include <cassert>
+#include <bit>
 #include <system_error>
+#include <ostream>
 
 namespace pulmotor {
 
@@ -50,12 +53,16 @@ PULMOTOR_BN(char32_t)
 
 
 template<std::integral T>
-constexpr inline T //typename std::enable_if<std::is_unsigned<T>::value, T>::type
+constexpr T //typename std::enable_if<std::is_unsigned<T>::value, T>::type
 align(T offset, size_t al)
 {
     T mask = al-1U;
     return ((offset-1U) | mask) + 1U;
 }
+
+template<class T>
+    requires( std::is_pointer_v<T*> )
+constexpr T* align(T* ptr, size_t al) { return (T*)align((uintptr_t)ptr, al); }
 
 template<size_t Alignment, std::integral T>
 constexpr inline T //typename std::enable_if<std::is_unsigned<T>::value, T>::type
@@ -116,7 +123,7 @@ struct fun_traits<R (*)(Args...)>
 
 // adapted from https://codereview.stackexchange.com/a/193436
 template<class F, class Tuple, size_t... Is>
-inline auto map_impl(F&& f, Tuple&& tup, std::index_sequence<Is...>)
+constexpr inline auto map_impl(F&& f, Tuple&& tup, std::index_sequence<Is...>)
 {
     if constexpr (sizeof...(Is) == 0)
         return std::tuple<>{};
@@ -136,27 +143,27 @@ inline auto map_impl(F&& f, Tuple&& tup, std::index_sequence<Is...>)
         return std::tuple( f(std::get<Is>(tup))... );
 }
 
-// basically `map' calls f on each of the tuple elements and returns a tuple with return values
+// call `f' on each of the tuple elements and return a tuple with return values
 template<class F, class... Args>
-auto map(F&& f, std::tuple<Args...> const& tup)
+constexpr auto map(F&& f, std::tuple<Args...> const& tup)
 {
-    return map_impl( std::forward<F>(f), tup, std::make_index_sequence<sizeof...(Args)>());
+    return map_impl( std::forward<F>(f), tup, std::index_sequence_for<Args...>());
 }
 
 template<class F, class... Args>
-auto map(F&& f, std::tuple<Args...>& tup)
+constexpr auto map(F&& f, std::tuple<Args...>& tup)
 {
-    return map_impl( std::forward<F>(f), tup, std::make_index_sequence<sizeof...(Args)>());
+    return map_impl( std::forward<F>(f), tup, std::index_sequence_for<Args...>());
 }
 
 template<class Store, class Quantity>
-struct euleb_count
+class euleb_max
 {
-    constexpr static unsigned Sbits = sizeof(Store)*8;
-    constexpr static unsigned Qbits = sizeof(Quantity)*8;
-    static_assert(Sbits <= Qbits);
-
-    enum : unsigned { value = (Qbits%Sbits) == 0 ? Qbits/Sbits : Qbits/Sbits+1 };
+    constexpr static size_t Sbits = sizeof(Store)*8; // type a quantity will be encoded into
+    constexpr static size_t Qbits = sizeof(Quantity)*8;
+    constexpr static size_t chunk = Sbits-1;
+public:
+    constexpr static size_t value = Qbits % chunk ? Qbits / chunk + 1 : Qbits / chunk;
 };
 
 size_t euleb(size_t s, u8* o);
@@ -165,6 +172,28 @@ size_t euleb(size_t s, u32* o);
 bool duleb(size_t& s, int& state, u8 v);
 bool duleb(size_t& s, int& state, u16 v);
 bool duleb(size_t& s, int& state, u32 v);
+inline size_t decode(size_t& value, u8 const* data) {
+    int state = 0;
+    while (util::duleb(value, state, *data++))
+        ;
+    return (size_t)state;
+}
+
+template<class Tcontainer>
+constexpr size_t euleb_length(size_t value) {
+    size_t bits = sizeof(size_t)*8 - std::countl_zero(value);
+    constexpr size_t Csz = sizeof(Tcontainer)*8;
+    return bits < Csz ? 1 : bits % (Csz-1) == 0 ? bits / (Csz-1) : bits / (Csz-1) + 1;
+}
+
+inline size_t decode(size_t& value, u16 const* data) {
+    int state = 0;
+    while (util::duleb(value, state, *data++))
+        ;
+    return (size_t)state;
+}
+
+
 
 constexpr static const size_t base64_invalid = (size_t)-1LL;
 enum class base64_options : unsigned
@@ -189,12 +218,19 @@ size_t base64_decode(char const* src, size_t encoded_length, char* dest, base64_
 std::string dm (char const*);
 void hexdump (void const* p, int len);
 std::string hexstring (void const* p, size_t len);
+inline std::string hexstring (std::string_view s) { return hexstring(s.data(), s.size()); }
 
 size_t write_file (path_char const* name, u8 const* ptr, size_t size);
 
+inline std::string hexv(std::vector<char> const& v) { return pulmotor::util::hexstring(v.data(), v.size()); }
+
 } // util
 
+inline std::string operator"" _hexs(char const* s, size_t l) { return pulmotor::util::hexstring(s, l); }
+
 namespace tl {
+
+template<class... Ts> struct list;
 
 namespace impl {
 
@@ -203,15 +239,47 @@ template<class T> struct index_impl<T> : std::integral_constant<size_t, 0> {};
 template<class T, class... Ts> struct index_impl<T, T, Ts...> : std::integral_constant<size_t, 0U> {};
 template<class T, class U, class... Ts> struct index_impl<T, U, Ts...> : std::integral_constant<size_t, 1 + index_impl<T, Ts...>::value> {};
 
+template<class... Ts> struct pop_front;
+template<> struct pop_front<> { using result = list<>; };
+template<class... Ts, class T> struct pop_front<T, Ts...> { using result = list<Ts...>; };
+
+template<class... Ls> struct concat;
+template<> struct concat<> { using type = list<>; };
+template<class... La> struct concat<list<La...>> { using type = list<La...>; };
+template<class... La, class... Lb> struct concat<list<La...>, list<Lb...>> { using type = list<La..., Lb...>; };
+template<class... La, class... Lb, class... Lc> struct concat<list<La...>, list<Lb...>, list<Lc...>> { using type = list<La..., Lb..., Lc...>; };
+template<class... La, class... Lb, class... Lc, class... Lx> struct concat<list<La...>, list<Lb...>, list<Lc...>, Lx...> { using type = concat<list<La..., Lb..., Lc...>, Lx...>; };
+
+// template<class L, size_t N, size_t... Is> struct pop_back_impl<L, std::index_sequence<Is...>> {
+// template<class L, size_t I, class Is> struct pop_back;
+// template<class L, size_t I, size_t... Is> struct pop_back<list<>, 0U, std::index_sequence<Is...> > { using type = list<>; };
+// template<class T, class... Ts, size_t I, size_t... Is> struct pop_back<list<T, Ts...>, sizeof...(Is), std::index_sequence<Is...>> {
+//     using tail = std::conditional< (I<1), list<>, list<Ts...>>::type;
+//     using type = std::concat<list<T>, tail>::type;
+// };
+
+// template<class... Ts> struct pop_back<list<Ts...>> {
+//     using type = pop_back<sizeof...(Ts), list<Ts...>, std::index_sequence_for<Ts...>>::type;
+// };
+
+// template<class... L> struct pop_back_impl;
+// template<class... Ts> struct pop_back_impl<list<Ts...>> { using type = pop_back_impl<list<Ts...>, sizeof(Is...), std::make_index_sequece<sizeof(Is...)>::type; };
+
+// template<class L> struct pop_back;
+// template<class... Ts> struct pop_back<list<Ts...>> { using type = pop_back_impl<list<Ts...>, std::make_index_sequence<sizeof(Ts)...>>::type; };
+
 } // impl
 
 template<class... Ts> struct list {
-
     template<class T> using append = list<Ts..., T>;
     template<class T> using prepend = list<T, Ts...>;
+    // using pop_back = typename impl::pop_back<Ts...>::result;
+    using pop_front = typename impl::pop_front<Ts...>::result;
     template<class T> using index = std::integral_constant<size_t, impl::index_impl<T, Ts...>::value>;
     template<class T> using has = std::integral_constant<bool, (std::is_same_v<T, Ts> || ...)>;
     using size = std::integral_constant<size_t, sizeof...(Ts)>;
+
+private:
 
 };
 
@@ -308,6 +376,87 @@ constexpr inline context<T, D> with_ctx (T& o, D&& data) {
     return context<T, D> { o, std::forward<D> (data) };
 }
 
+namespace utf8
+{
+
+constexpr inline unsigned next_unchecked(char const*& s)
+{
+    unsigned cp = 0;
+    if ( !(*s & 0x80) ) {
+        cp = *s++;
+    } else if ((*s & 0xe0) == 0xc0) {
+        cp = (*s++ & 0x1fu) << 6;
+        cp |= (*s++ & 0x3f);
+    } else if ((*s & 0xf0) == 0xe0) {
+        cp = (*s++ & 0x0fu) << 12;
+        cp |= (*s++ & 0x3fu) << 6;
+        cp |= (*s++ & 0x3fu);
+    } else if ((*s & 0xf8) == 0xf0) {
+        cp = (*s++ & 0x0fu) << 18;
+        cp |= (*s++ & 0x3fu) << 12;
+        cp |= (*s++ & 0x3fu) << 6;
+        cp |= (*s++ & 0x3fu);
+    }
+    return cp;
+}
+
+constexpr inline unsigned next_checked(char const*& s, char const* e)
+{
+    constexpr unsigned RCHAR = 0xfffd;
+    unsigned cp = 0;
+    if ( !(*s & 0x80) ) {
+        cp = *s++;
+    } else if ((*s & 0xe0) == 0xc0) {
+        cp = (*s++ & 0x1fu) << 6;
+        if (s == e) return RCHAR;
+        cp |= (*s++ & 0x3f);
+    } else if ((*s & 0xf0) == 0xe0) {
+        cp = (*s++ & 0x0fu) << 12;
+        if (s == e) return RCHAR;
+        cp |= (*s++ & 0x3fu) << 6;
+        if (s == e) return RCHAR;
+        cp |= (*s++ & 0x3fu);
+    } else if ((*s & 0xf8) == 0xf0) {
+        cp = (*s++ & 0x0fu) << 18;
+        if (s == e) return RCHAR;
+        cp |= (*s++ & 0x3fu) << 12;
+        if (s == e) return RCHAR;
+        cp |= (*s++ & 0x3fu) << 6;
+        if (s == e) return RCHAR;
+        cp |= (*s++ & 0x3fu);
+    } else
+        return RCHAR;
+
+    return cp;
+}
+
+constexpr inline bool is_ascii(char c)
+{
+    return (c & 0x80) == 0;
+}
+
+constexpr inline void backtrack_codepoint_start(char const*& end, char const* b)
+{
+    while (end-- != b) {
+        if ((*end & 0x80) == 0)
+            return;
+    }
+}
+
+constexpr inline unsigned decode_unchecked(char const* s)
+{
+    char const* p = s;
+    return next_unchecked(p);
+}
+
+constexpr inline unsigned decode_checked(char const* s, char const* e)
+{
+    char const* p = s;
+    return next_checked(p, e);
+}
+
+} // utf8
+
 #if PULMOTOR_EXCEPTIONS
 
 enum err
@@ -341,6 +490,8 @@ struct yaml_error : error
 
 PULMOTOR_ATTR_DLL void throw_error(err e, char const* msg, char const* filename, text_location loc);
 PULMOTOR_ATTR_DLL void throw_error(char const* msg, ...);
+PULMOTOR_ATTR_DLL void throw_fmt_error(char const* filename, text_location loc, char const* msg, ...);
+#define PULMOTOR_THROW_FMT_ERROR(msg, ...) throw_fmt_error(__FILE__, text_location { __LINE__, 0 }, msg __VA_OPT__(,) __VA_ARGS__ )
 PULMOTOR_ATTR_DLL void throw_system_error(std::error_code const& ec, char const* msg, char const* filename, text_location loc);
 #define PULMOTOR_THROW_SYSTEM_ERROR(ec, msg) throw_system_error(ec, msg, __FILE__, text_location { __LINE__, 0 } )
 PULMOTOR_ATTR_DLL std::string ssprintf(char const* msg, ...);
@@ -351,6 +502,15 @@ constexpr inline std::ptrdiff_t operator"" _z(unsigned long long a) { return std
 constexpr inline std::size_t operator"" _uz(unsigned long long a) { return std::size_t(a); }
 constexpr inline std::size_t operator"" _zu(unsigned long long a) { return std::size_t(a); }
 }
+
+inline std::ostream& operator<<(std::ostream& os, prefix const& p) {
+    std::ios s(nullptr);
+    s.copyfmt(os);
+    os << "(" << p.version << " | " << std::hex << (u16)p.flags << ")";
+    os.copyfmt(s);
+    return os;
+}
+
 
 } // pulmotor
 

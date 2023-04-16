@@ -97,21 +97,38 @@ template<class T, class C, class D>	struct is_construct<ctor<T, C, D>>	: std::tr
 template<class T = void>			struct is_construct_pure						: std::false_type {};
 template<class T, class C, class D>	struct is_construct_pure<ctor_pure<T, C, D>>	: std::true_type {};
 
-template<class T>
+struct end_array_t {};
+template<class>         struct is_end_array : std::false_type {};
+template<>              struct is_end_array<end_array_t> : std::true_type {};
+inline constexpr end_array_t end_array() { return end_array_t{}; }
+
+template<class T, bool FullControl>
 struct array_ref
 {
     using type = T;
+    enum { full = FullControl };
     T* data;
     size_t size;
 };
 
-template<class T = void>	struct is_array_ref : std::false_type {};
-template<class T>			struct is_array_ref<array_ref<T>> : std::true_type {};
+template<class>             struct is_array_ref : std::false_type {};
+template<class T, bool F>   struct is_array_ref<array_ref<T, F>> : std::true_type {};
 
 template<class T>
-inline array_ref<T>
-array(T const* p, size_t s)
-{ return array_ref<T>{(T*)p, s}; }
+inline constexpr array_ref<T, true> array(T const* p, size_t s)
+{ return array_ref<T, true>{(T*)p, s}; }
+
+template<class T>
+inline constexpr array_ref<T, false> array_data(T const* p, size_t s)
+{ return array_ref<T, false>{(T*)p, s}; }
+
+struct array_size_ref
+{
+    size_t& size;
+};
+template<class T = void>	struct is_array_size_ref : std::false_type {};
+template<>			        struct is_array_size_ref<array_size_ref> : std::true_type {};
+inline constexpr array_size_ref array_size(size_t& s) { return array_size_ref{s}; }
 
 template<class S, class Q>
 struct vu_t
@@ -128,7 +145,54 @@ template<class S, class Q>	struct is_vu<vu_t<S, Q>>	: std::true_type {};
 
 struct empty_context {};
 
-template<class Tb>
+template<class Ar, unsigned Options>
+struct archive_options
+{
+    using archive_t = Ar;
+    enum { options = Options };
+
+    Ar& archive;
+};
+
+namespace impl
+{
+
+template<class T> struct arch_opt_detect {
+    using is_context = std::bool_constant<false>::type;
+    using archive_t = T;
+    enum { options = 0 };
+
+    static archive_t& extract_archive(T& ac) { return ac; }
+};
+template<class Ar, unsigned Options> struct arch_opt_detect< archive_options<Ar, Options> > {
+    using is_context = std::bool_constant<true>::type;
+    using archive_t = Ar;
+    enum { options = Options };
+    static archive_t& extract_archive(archive_options<Ar, Options>& ac) { return ac.archive; }
+};
+
+}
+
+// template<class T, class Ar>
+// struct array_helper_t
+// {
+//     Ar* m_ar;
+
+//     explicit array_helper_t(Ar& ar) : m_ar(ar) {}
+//     array_helper_t(array_helper_t&& o) : m_ar(o.ar) { o.ar = nullptr; }
+//     array_helper_t& operator=(array_helper_t& o) = delete;
+//     array_helper_t& operator=(array_helper_t&& o) = delete;
+//     ~array_helper_t() { if (m_ar) m_ar.end_array(); }
+
+//     template<class U>
+//     constexpr array_helper_t& operator|(U const& u) const { *m_ar | u; return *this; }
+
+//     void size(size_t sz);
+//     size_t size();
+// };
+
+// Mode: 32bit. low 24 - archive dependent, high 8 - generic
+template<class Tb, size_t Mode = 0>
 struct logic
 {
     template<class Ar>
@@ -191,8 +255,11 @@ struct logic
     }
 
     template<class Ar>
-    static void s_serializable(Ar& ar, Tb& o)
+    static void s_serializable(Ar& archive_context, Tb& o)
     {
+        typename impl::arch_opt_detect<Ar>::archive_t& ar = impl::arch_opt_detect<Ar>::extract_archive(archive_context);
+        using archive_t = typename impl::arch_opt_detect<Ar>::archive_t;
+
         if (false) {
         // } else if constexpr(std::is_pointer_v<Tb>) {
         //     using Tp = typename std::remove_const<typename std::remove_pointer<Tb>::type>::type;
@@ -268,37 +335,58 @@ struct logic
         //     }
         } else if constexpr(std::is_array_v<Tb>) {
             using Ta = typename std::remove_extent<Tb>::type;
-
+            constexpr size_t Na = std::extent<Tb>::value;
+            size_t s = Na;
+            ar.begin_array(s);
+            if (Ar::is_reading && s != Na)
+                PULMOTOR_THROW_FMT_ERROR("invalid stream: input contains more elements than the destination array size");
             if constexpr(std::rank<Ta>::value == 0) {
-                constexpr size_t Na = std::extent<Tb>::value;
                 using To = typename std::remove_all_extents<Tb>::type;
                 if constexpr(std::is_arithmetic<Ta>::value || std::is_enum<Ta>::value) {
                     logic<To>::s_primitive_array(ar, o, Na);
                 } else if constexpr(std::is_pointer<Ta>::value) {
                     static_assert(!std::is_same<Ta, Ta>::value, "array of pointers is not supported");
                 } else {
-                    // using Ta = typename std::remove_all_extents<Tb>::type;
                     prefix p = logic<To>::s_prefix(ar);
                     logic<To>::s_struct_array(ar, o, Na, p);
                 }
             } else {
                 using Ta = typename std::remove_extent<Tb>::type;
-                // 	ar.begin_array();
-                for (size_t i=0; i<std::extent<Tb>::value; ++i)
+                for (size_t i=0; i<Na; ++i)
                     logic<Ta>::s_serializable(ar, o[i]);
-                // 	ar.end_array();
             }
-        // } else if constexpr(is_array_ref<Tb>::value) {
-        //     // ar.begin_array ();
-        //     using Ta = typename Tb::type;
-        //     if constexpr(std::is_arithmetic<Ta>::value || std::is_enum<Ta>::value)
-        //         logic<Ta>::s_primitive_array(ar, o.data, o.size);
-        //     else if constexpr(std::is_pointer<Ta>::value) {
-        //         static_assert(!std::is_same<Ta, Ta>::value, "array of pointers is not supported");
-        //     } else {
-        //         object_meta v = logic<Ta>::s_version(ar, o.data, false);
-        //         logic<Ta>::s_struct_array(ar, o.data, o.size, v);
-        //     }
+            ar.end_array();
+        } else if constexpr(is_array_size_ref<Tb>::value) {
+            ar.begin_array (o.size);
+        } else if constexpr(is_end_array<Tb>::value) {
+            ar.end_array ();
+        } else if constexpr(is_array_ref<Tb>::value) {
+        //} else if constexpr(requires { std::is_same<Tb, array_ref<typename Tb::type, false>>::value; } )  {
+            // the calling code must surround this in begin_array/end_array
+            using Ta = typename Tb::type;
+            if (Tb::full)
+                ar.begin_array(o.size);
+            if constexpr(std::is_arithmetic<Ta>::value || std::is_enum<Ta>::value || type_util<Ta>::template is_primitive_v<archive_t>)
+                logic<Ta>::s_primitive_array(ar, o.data, o.size);
+            else if constexpr(std::is_pointer<Ta>::value) {
+                static_assert(!std::is_same<Ta, Ta>::value, "array of pointers is not supported");
+            } else {
+                prefix p = logic<Ta>::s_prefix(ar);
+                logic<Ta>::s_struct_array(ar, o.data, o.size, p);
+            }
+            ar.end_array();
+        } else if constexpr(is_nv<Tb>::value) {
+            // using Tcontained = typename Tb::value_type;
+            if constexpr (archive_t::is_writing) {
+                // ar.write_key(o.get_nameview());
+                // logic<Tcontained>::s_serialize(o.obj);
+                ar.write_named(o.get_nameview(), o.obj);
+            } else if constexpr (archive_t::is_reading) {
+                ar.read_named(o.get_nameview(), o.obj);
+            }
+
+            // ar | nv("content", content * yaml_format(yaml::eol_keep))
+            // logic<Tbase>::s_struct(ar, *o.p, p);
         } else if constexpr(is_base<Tb>::value) {
             using Tbase = typename Tb::base_type;
             prefix p = logic<Tbase>::s_prefix(ar);
@@ -306,35 +394,47 @@ struct logic
         } else if constexpr(is_vu<Tb>::value) {
             using Ts = typename Tb::serialize_type;
             logic<Ts>::s_vu(ar, *o.q);
+        } else if constexpr(is_mod_op<Tb>::value) {
+            if constexpr (has_supported_mods<archive_t>::value) {
+                if constexpr( Ar::supported_mods::template has< typename Tb::type >::value )
+                    o(ar);
+            }
         } else if constexpr(is_mod_list<Tb>::value) {
             using Tv = typename Tb::value_type;
-            apply_mod_list(ar, o);
-            logic<Tv>::s_serializable(ar, o.value);
+#if 0
+            constexpr size_t new_mode = combine_mode(Mode, o);
+            logic<Tv, new_mode>::s_serializable(archive_context, o.value);
+#elif 1
+            auto& state = ar.current_scope();
+            util::map([&state] (auto const& op) { op(state); }, o);
+            logic<Tv>::s_serializable(archive_context, o.value);
+            ar.restore_scope(state);
+#endif
 
+            // archive_t::state s {};
+            // archive_t::state s = apply_serialization_mods(ar, s, o);
+
+            // logic<Tv>::s_serializable(bind(ar, s), o.value);
+            // logic<Tv>::s_serializable(bind(ar, s), bind(o.value, s));
+            // logic<Tv>::s_serializable(bindar, o.value, context<archive_t::state>()));
+
+            // ar | array(m_texture, m_tex_size) * base64<yaml_archive>(1024)
+            // ar | yaml_format(yaml::flow) | x | y | z | w * yaml_format(yaml::flow);
+            // ar | m_description * yaml_format(yaml::eol_keep|yaml::block_literal)
             // ar | wrap( 64, base64( array(a, 100) ));
             // ar | array(a, 100) * base64<yaml_archive>() * wrap(64)
-            // ar | array(a, 100) * yaml_base64() * wrap(64)
-            // ar | array(a, 100) * yaml_base64() * wrap_sticky(64)
+            // ar | array(a, 100) * yaml_base64(64)
+            // ar | array(a, 100) * yaml_base64(32) * json_string() * bin_vu()
 
-        } else if constexpr(std::is_arithmetic<Tb>::value || std::is_enum<Tb>::value) {
+        } else if constexpr(std::is_arithmetic<Tb>::value || std::is_enum<Tb>::value || type_util<Tb>::template is_primitive_v<archive_t>) {
             s_primitive(ar, o);
         } else if constexpr(std::is_class<Tb>::value || std::is_union<Tb>::value) {
-            constexpr prefix code = type_util<Tb>::extract_prefix();
             ar.begin_object();
-            if constexpr (code.store()) {
-                prefix_ext* ppx = nullptr;
-#if PULMOTOR_DEBUG_SERIALIZE
-                prefix_ext px = prefix_ext{ typeid(Tb).name() };
-                ppx = &px;
-#endif
-                if constexpr (Ar::is_writing) {
-                    ar.write_prefix(code, ppx);
-                    s_struct(ar, o, code);
-                } else if constexpr (Ar::is_reading) {
-                    prefix p = ar.read_prefix(ppx);
-                    s_struct(ar, o, p);
-                }
+            if constexpr (type_util<Tb>::store_prefix()) {
+                prefix p = s_prefix(ar);
+                s_struct(ar, o, p);
             } else {
+                prefix code = type_util<Tb>::extract_prefix();
                 s_struct(ar, o, code);
             }
             ar.end_object();
@@ -356,37 +456,41 @@ struct logic
             return ar.read_prefix(nullptr);
         } else {
             prefix p = type_util<Tb>::extract_prefix();
+            assert (p.store());
             ar.write_prefix(p, nullptr);
             return p;
         }
     }
 
     template<class Ar>
-    static void s_struct(Ar& ar, Tb& o, prefix px) {
-        access::call<Tb>::pick_serialize(ar, o, px.version);
+    static void s_struct(Ar& ar, Tb& o, prefix p) {
+        access::call<Tb>::pick_serialize(ar, o, p.version);
     }
 
     template<class Ar>
-    static void s_struct_array(Ar& ar, Tb* o, size_t size, prefix px) {
+    static void s_struct_array(Ar& ar, Tb* o, size_t size, prefix p) {
         for (size_t i=0; i<size; ++i) {
-            logic<Tb>::s_struct(ar, o[i], px);
+            ar.begin_object();
+            logic<Tb>::s_struct(ar, o[i], p);
+            ar.end_object();
         }
     }
 
     template<class Ar>
     static void s_primitive_array(Ar& ar, Tb* o, size_t size) {
-        if constexpr(Ar::is_reading)
-        	ar.template read_data(o, size);
-        else
-        	ar.template write_data(o, size);
+        if constexpr(Ar::is_reading) {
+            ar.template read_data<Tb, Mode>(o, size);
+        } else {
+            ar.template write_data<Tb, Mode>(o, size);
+        }
     }
 
     template<class Ar>
     static void s_primitive(Ar& ar, Tb& o) {
         if constexpr(Ar::is_reading) {
-        	ar.template read_single(o);
+        	ar.read_single(o);
         } else if constexpr(Ar::is_writing) {
-        	ar.template write_single(o);
+        	ar.write_single(o);
         }
     }
 };
@@ -435,8 +539,8 @@ operator| (ArchiveT& ar, context<T, D> const& ctx) {
 template<class Ar, class T>
 inline void serialize(Ar& ar, nv_t<T>& nv)
 {
-    ar.write_name(nv.get_nameview());
-    ar | nv.obj;
+    ar.write_named(nv.get_nameview(), nv.obj);
+    // ar | nv.obj;
     // ar.set_name(std::string_view(nv.name, nv.name_length));
     // ar | nv.obj;
     // ar.set_name(std::string_view());

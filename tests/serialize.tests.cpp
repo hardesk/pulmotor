@@ -4,11 +4,9 @@
 #include <pulmotor/std/utility.hpp>
 // #include <pulmotor/yaml_archive.hpp>
 #include <pulmotor/binary_archive.hpp>
+#include <span>
 
 std::vector<char> operator"" _v(char const* s, size_t l) { return std::vector<char>(s, s + l); }
-
-std::string operator"" _hexs(char const* s, size_t l) { return pulmotor::util::hexstring(s, l); }
-std::string hexv(std::vector<char> const& v) { return pulmotor::util::hexstring(v.data(), v.size()); }
 
 namespace std {
 
@@ -105,14 +103,29 @@ namespace test_types
 
         bool operator==(A const& a) const = default;
         template<class Ar> void serialize(Ar& ar, unsigned version) { ar | x; }
+        friend std::ostream& operator<<(std::ostream& os, A const& a) { os << '{' << a.x << '}'; return os; }
     };
+
+    // same as as, but marked to be serialized with no prefix (below)
+    struct An {
+        int x;
+
+        bool operator==(An const& a) const = default;
+        template<class Ar> void serialize(Ar& ar, unsigned version) { ar | x; }
+        friend std::ostream& operator<<(std::ostream& os, An const& a) { os << '{' << a.x << '}'; return os; }
+    };
+
 
     struct B {
         A a;
-        int y;
+        int y = 2; // appeared in v2
 
         bool operator==(B const&) const = default;
-        template<class Ar> void serialize(Ar& ar, unsigned version) { ar | a | y; }
+        template<class Ar> void serialize(Ar& ar, unsigned version) {
+            ar | a;
+            if (version >= 2) ar | y;
+        }
+        friend std::ostream& operator<<(std::ostream& os, B const& b) { os << '{' << b.a << ", " << b.y << '}'; return os; }
     };
 
     struct C {
@@ -155,6 +168,9 @@ namespace test_types
     struct DDM : DBM		{ int y; template<class Ar> void serialize(Ar& ar) { ar | pulmotor::base<DBM>(this) | y; } };
     struct DDSL : DBSL		{ int y; template<class Ar> void serialize(Ar& ar) { ar | pulmotor::base<DBSL>(this) | y; } };
 } // test_types
+
+PULMOTOR_DECL_VERSION(test_types::An, pulmotor::no_prefix);
+PULMOTOR_DECL_VERSION(test_types::B, 2);
 
 namespace detect_serialize
 {
@@ -320,10 +336,10 @@ TEST_CASE("value serialize")
 
         SUBCASE("8") {
             ar | a8 | a16 | a32 | a64;
-            CHECK(hexv(out.data()) == "8\0" "16323264646464"_hexs);
+            CHECK(pulmotor::util::hexv(out.data()) == "8\0" "16323264646464"_hexs);
 
             // archive_vector_in i(out.data());
-            source_buffer s(out.data().data(), out.data().size()); archive_memory i(s);
+            archive_memory i(std::span<const char>(out.data()));
             i | x8 | x16 | x32 | x64;
 
             CHECK(a8==x8);
@@ -334,9 +350,9 @@ TEST_CASE("value serialize")
 
         SUBCASE("16") {
             ar | a16 | a32 | a64;
-            CHECK(hexv(out.data()) == "16\0\0" "323264646464"_hexs);
+            CHECK(pulmotor::util::hexv(out.data()) == "16\0\0" "323264646464"_hexs);
 
-            source_buffer s(out.data().data(), out.data().size()); archive_memory i(s);
+            archive_memory i(std::span<char const>(out.data()));
             i | x16 | x32 | x64;
             CHECK(a16==x16);
             CHECK(a32==x32);
@@ -345,8 +361,8 @@ TEST_CASE("value serialize")
 
         SUBCASE("32") {
             ar | a32 | a64;
-            CHECK(hexv(out.data()) == "3232\0\0\0\0""64646464"_hexs);
-            source_buffer s(out.data().data(), out.data().size()); archive_memory i(s);
+            CHECK(pulmotor::util::hexv(out.data()) == "3232\0\0\0\0""64646464"_hexs);
+            archive_memory i(std::span<char const>(out.data()));
             i | x32 | x64;
             CHECK(a32==x32);
             CHECK(a64==x64);
@@ -354,8 +370,8 @@ TEST_CASE("value serialize")
 
         SUBCASE("16\08") {
             ar | a16 | a8 | a32 | a64;
-            CHECK(hexv(out.data()) == "168\0""323264646464"_hexs);
-            source_buffer s(out.data().data(), out.data().size()); archive_memory i(s);
+            CHECK(pulmotor::util::hexv(out.data()) == "168\0""323264646464"_hexs);
+            archive_memory i(std::span<char const>(out.data()));
             CHECK(a16==x16);
             CHECK(a8==x8);
             CHECK(a32==x32);
@@ -364,8 +380,8 @@ TEST_CASE("value serialize")
 
         SUBCASE("16\032\08") {
             ar | a16 | a32 | a8 | a64;
-            CHECK(hexv(out.data()) == "16\0\0""32328\0\0\0\0\0\0\0""64646464"_hexs);
-            source_buffer s(out.data().data(), out.data().size()); archive_memory i(s);
+            CHECK(pulmotor::util::hexv(out.data()) == "16\0\0""32328\0\0\0\0\0\0\0""64646464"_hexs);
+            archive_memory i(std::span<char const>(out.data()));
             i | x16 | x32 | x8 | x64;
             CHECK(a16==x16);
             CHECK(a32==x32);
@@ -381,33 +397,113 @@ TEST_CASE("value serialize")
         A a{1234};
         ar | a;
 
-        source_buffer s(out.data().data(), out.data().size()); archive_memory i(s);
-        A x;
+        CHECK(pulmotor::util::hexv(out.data()) == "\1\0\0\0\xd2\4\0\0"_hexs);
+
+        archive_memory i(std::span<char const>(out.data()));
+        A x { 0 };
         i | x;
 
         CHECK( a == x );
     }
 
+    SUBCASE("struct no prefix")
+    {
+        An a{1234};
+        ar | a;
+
+        CHECK(pulmotor::util::hexv(out.data()) == "\xd2\4\0\0"_hexs);
+
+        archive_memory i(std::span<char const>(out.data()));
+        An x { 0 };
+        i | x;
+
+        CHECK( a == x );
+    }
+
+    SUBCASE("struct of older version")
+    {
+        std::vector<char> data1 = "\1\0\0\0\1\0\0\0\xd2\4\0\0"_v;
+        std::vector<char> data3 = "\3\0\0\0\1\0\0\0\xd2\4\0\0\1\1\0\0"_v;
+
+        archive_memory i1 = std::span<char const>(data1);
+        B b1;
+        i1 | b1;
+
+        CHECK(b1.y == 2);
+
+        archive_memory i3 = std::span<char const>(data3);
+        B b3;
+        i3 | b3;
+
+        CHECK(b3.y == 257);
+    }
+
     SUBCASE("primitive array")
+    {
+        int a[2] = {1, 120};
+        ar | array(a, 2);
+
+        // for natural align policy
+        CHECK(pulmotor::util::hexv(out.data()) == "\2\0\0\0\1\0\0\0\x78\0\0\0"_hexs);
+
+        archive_memory i1(std::span<char const>(out.data()));
+        int x1[2] = { 0, 0 };
+        size_t s = 2;
+        i1 | array_size(s);
+        i1 | array_data(x1, s);
+        CHECK( a[0] == x1[0] );
+        CHECK( a[1] == x1[1] );
+
+        archive_memory i2(std::span<char const>(out.data()));
+        int x2[2] = { 0, 0 };
+        i2 | array_size(s);
+        i2 | x2[0] | x2[1];
+        i2.end_array();
+        CHECK( a[0] == x2[0] );
+        CHECK( a[1] == x2[1] );
+    }
+
+    SUBCASE("primitive array fixed size")
     {
         int a[2] = {1, 120};
         ar | a;
 
-        CHECK(hexv(out.data()) == "\1\0\0\0\x78\0\0\0"_hexs);
+        CHECK(pulmotor::util::hexv(out.data()) == "\2\0\0\0\1\0\0\0\x78\0\0\0"_hexs);
 
-        source_buffer s(out.data().data(), out.data().size()); archive_memory i(s);
+        archive_memory i(std::span<char const>(out.data()));
         int x[2] = { 0, 0 };
         i | x;
         CHECK( a[0] == x[0] );
         CHECK( a[1] == x[1] );
     }
 
-    SUBCASE("array")
+    SUBCASE("array of struct")
+    {
+        A a[2] = {{1234}, {5678}};
+        size_t s = 2;
+        ar | array_size(s);
+        ar | pulmotor::array_data(a, 2);
+
+        // for natural align policy
+        CHECK(pulmotor::util::hexv(out.data()) == "\2\0\1\0\0\0\0\0\xd2\4\0\0\x2e\x16\0\0"_hexs);
+
+        archive_memory i(std::span<char const>(out.data()));
+        A x[2];
+        i | array_size(s);
+        i | pulmotor::array_data(x, 2);
+        ar.end_array();
+        CHECK( a[0] == x[0] );
+        CHECK( a[1] == x[1] );
+    }
+
+    SUBCASE("array of struct fixed size")
     {
         A a[2] = {{1234}, {5678}};
         ar | a;
 
-        source_buffer s(out.data().data(), out.data().size()); archive_memory i(s);
+        CHECK(pulmotor::util::hexv(out.data()) == "\2\0\1\0\0\0\0\0\xd2\4\0\0\x2e\x16\0\0"_hexs);
+
+        archive_memory i(std::span<char const>(out.data()));
         A x[2];
         i | x;
         CHECK( a[0] == x[0] );
@@ -419,7 +515,7 @@ TEST_CASE("value serialize")
         A a[2][3] = { {{1234}, {5678}, {9112}}, {{1234}, {5678}, {9556}} };
         ar | a;
 
-        source_buffer s(out.data().data(), out.data().size()); archive_memory i(s);
+        archive_memory i(std::span<char const>(out.data()));
         A x[2][3];
         i | x;
         CHECK( a[0][0] == x[0][0] );
@@ -438,8 +534,7 @@ TEST_CASE("value serialize")
         B b{{1111}, 2222};
         ar | b;
 
-
-        source_buffer s(out.data().data(), out.data().size()); archive_memory i(s);
+        archive_memory i(std::span<char const>(out.data()));
         N n1;
         i | n1;
         CHECK( n1.a.x == n.a.x );
@@ -456,7 +551,7 @@ TEST_CASE("value serialize")
         {
             ar | a;
 
-            source_buffer s(out.data().data(), out.data().size()); archive_memory i(s);
+            archive_memory i(std::span<char const>(out.data()));
             std::remove_reference_t<decltype(a)> x;
             i | x;
             CHECK(x.x == a.x);
@@ -740,11 +835,11 @@ TEST_CASE("ptr serialize")
     SUBCASE("placement")
     {
         int x = 200, xx = 0;
-        std::aligned_storage_t<sizeof(A)> a[1];
+        std::aligned_storage_t<sizeof(A)>::type a[1];
         new (a) A(12345678);
         ar | place<A>(a) | x;
 
-        std::aligned_storage_t<sizeof(A)> aa[1];
+        std::aligned_storage_t<sizeof(A)>::type aa[1];
         archive_vector_in i(ar.data);
         i | place<A>(aa) | xx;
 

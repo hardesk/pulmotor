@@ -26,6 +26,8 @@
 
 namespace pulmotor {
 
+constexpr size_t forced_align_value = 64;
+
 enum
 {
     align_natural = 0
@@ -53,7 +55,7 @@ struct archive
     archive(archive const&) = delete;
     archive& operator=(archive const&) = delete;
 
-    void begin_array () {}
+    void begin_array (size_t& size) {}
     void end_array () {}
 
     void begin_object () {}
@@ -61,6 +63,20 @@ struct archive
 
     void object_name(char const*) {}
 };
+
+// used for testing
+struct XXX
+{
+    int a;
+    float b;
+    char c;
+    wchar_t d;
+    short e;
+    long f;
+    double g;
+};
+
+
 
 enum archiver_flags
 {
@@ -84,50 +100,80 @@ template<class Ar>				 struct supports_kv<Ar, std::void_t<typename Ar::supports_
 
 extern char null_32[32];
 
-template<class Derived> struct mod_op { using type = Derived; };
+template<class Derived> struct mod_op {
+    using type = Derived;
+};
+
+template<class Derived, size_t Mode>
+struct mod_mode {
+    using type = Derived;
+    static constexpr size_t value = Mode;
+};
 
 template<class T, class... Ops>
 struct mod_list : std::tuple<Ops...> {
-    using value_ttype = T;
-    T const& value;
-    mod_list(T const& v, std::tuple<Ops...> const& a) : std::tuple<Ops...>(a), value(v) {}
+    using value_type = T;
+    T& value;
+    constexpr mod_list(T const& v, std::tuple<Ops...> const& a) : std::tuple<Ops...>(a), value(const_cast<T&>(v)) {}
 };
 
 template<class T> struct is_mod_list : std::false_type { };
 template<class T, class... Ops> struct is_mod_list<mod_list<T, Ops...>> : std::true_type { };
 
+template<class T> struct is_mod_op : std::false_type { };
+template<class T> struct is_mod_op<mod_op<T>> : std::true_type { };
+
 template<class T, class Op>
-mod_list<T, Op> operator*(T const& v, mod_op<Op> const& op) {
+constexpr mod_list<T, Op> operator*(T const& v, mod_op<Op> const& op) {
     return mod_list<T, Op>(v, std::tuple<Op>(static_cast<Op const&>(op)));
 }
 
 template<class T, class Op, class... Ops>
-mod_list<T, Ops..., Op> operator*(mod_list<T, Ops...> const& ops, mod_op<Op> const& op) {
+constexpr mod_list<T, Ops..., Op> operator*(mod_list<T, Ops...> const& ops, mod_op<Op> const& op) {
     auto op_tup = std::make_tuple(static_cast<Op const&>(op));
     std::tuple<Ops...> const& ops_tup = static_cast<std::tuple<Ops...> const&>(ops);
     return mod_list<T, Ops..., Op>(ops.value, std::tuple_cat(ops_tup, op_tup));
 }
 
-template<class Ar, class Context, class T, class... Ops>
-void apply_mod_list(Ar& ar, Context& ctx, mod_list<T, Ops...> const& ops) {
+template<class Ar, class T, class... Ops>
+constexpr void apply_serialization_mods(Ar& ar, mod_list<T, Ops...> const& ops) {
     if constexpr (has_supported_mods<Ar>::value)
-        pulmotor::util::map( [&ar, &ctx](auto op) {
+        pulmotor::util::map( [&ar](auto op) {
             using op_t = decltype(op);
             if constexpr( Ar::supported_mods::template has< typename op_t::type >::value )
-                op(ar, ctx);
+                op(ar);
         }, ops);
 }
 
+
 struct mod_base64 : mod_op<mod_base64> {
     template<class Ar, class Context>
-    void operator()(Ar& ar, Context& ctx) { ctx.flags |= 0; }
+    constexpr void operator()(Ar& ar, Context& ctx) { ctx.flags |= 0; }
 };
 
 struct mod_wrap : mod_op<mod_wrap> {
     int width;
     template<class Ar, class Context>
-    void operator()(Ar& ar, Context& ctx) { ctx.wrap = width; }
+    constexpr void operator()(Ar& ar, Context& ctx) { ctx.wrap = width; }
+    // constexpr void operator()(size_t& mode) { mode = mode &  |= width; }
 };
+
+template<class T, class... Ops>
+consteval size_t combine_mode(size_t start_mode, mod_list<T, Ops...> const& ops) {
+    util::map(
+        [&start_mode] <typename Op> (Op const& op) {
+            op(start_mode);
+        },
+        ops);
+    // constexpr auto helper = [] (size_t& s, auto const& op) { op(s); };
+    // ( helper(start_mode, ops), ... );
+    return start_mode;
+}
+
+// template<size_t Mode>
+// struct yaml_fmt : mod_mode<yaml_fmt<Mode>, Mode> {
+//     constexpr void operator()(size_t& mode) { mode |= Mode; }
+// };
 
 // template<class Derived>
 // struct archive_write_named_util

@@ -7,6 +7,8 @@
 #include <vector>
 #include <fstream>
 #include <unordered_map>
+#include <concepts>
+#include <span>
 
 #include "stream.hpp"
 #include "archive.hpp"
@@ -15,13 +17,55 @@
 namespace pulmotor
 {
 
+template<class T>
+concept align_policy = requires(T policy)
+{
+    { policy.align( std::declval<fs_t>(), size_t(0u)) } -> std::convertible_to<fs_t>;
+};
+
+struct packed_align_policy
+{
+    template<std::unsigned_integral T>
+    constexpr T align(T offset, size_t naturalAlignment) const { return offset; }
+};
+
+struct min_align_policy
+{
+    size_t min_alignment = 1;
+    template<std::unsigned_integral T>
+    constexpr T align(T offset, size_t naturalAlignment) const {
+        return util::align(offset, min_alignment);
+    }
+};
+
+struct natural_align_policy
+{
+    template<std::unsigned_integral T>
+    constexpr T align(T offset, size_t naturalAlignment) const {
+        return util::align(offset, naturalAlignment);
+    }
+};
+
+struct natural_min_align_policy
+{
+    size_t min_alignment = 1;
+    template<std::unsigned_integral T>
+    constexpr T align(T offset, size_t naturalAlignment) {
+        size_t target = naturalAlignment > min_alignment ? naturalAlignment : min_alignment;
+        return util::align(offset, target);
+    }
+};
+
+using data_align_policy = natural_align_policy;
+using prefix_vu_t = u8;
+using vu_size_t = u16;
+
 template<class Derived>
 struct archive_write_util
 {
-    enum { forced_align = 256 };
     enum { is_stream_aligned = true };
 
-    archive_write_util(unsigned flags) : m_flags(flags) {}
+    archive_write_util(vfl flags) : m_flags(flags) {}
 
     Derived& self() { return *static_cast<Derived*>(this); }
 
@@ -61,7 +105,7 @@ private:
     void write_default_aligned(void const* p, size_t size);
 
 private:
-    unsigned m_flags;
+    vfl m_flags;
 };
 
 template<class Derived>
@@ -82,7 +126,7 @@ template<class Derived>
 template<class T>
 PULMOTOR_NOINLINE
 void archive_write_util<Derived>::write_object_prefix(T const* obj, prefix pre) {
-    assert(pre.version != vfl::no_version);
+    assert(pre.store());
 
     if (obj == nullptr)
         pre.version |= (unsigned)vfl::null_ptr;
@@ -123,7 +167,7 @@ void archive_write_util<Derived>::write_object_prefix_impl(char const* obj_name,
 
     fs_t objs = 0;
     if(pre.is_aligned()) {
-        objs = util::align(base + block_size, forced_align);
+        objs = util::align(base + block_size, forced_align_value);
         garbage_len = objs - base - sizeof garbage_len;
     }
 
@@ -149,7 +193,7 @@ void archive_write_util<Derived>::write_object_prefix_impl(char const* obj_name,
             i -= count;
         }
 #endif
-        assert(self().offset() == util::align(self().offset(), forced_align) && "garbage alignment is not correct");
+        assert(self().offset() == util::align(self().offset(), forced_align_value) && "garbage alignment is not correct");
     }
 }
 
@@ -159,7 +203,7 @@ struct archive_vu_util
     template<class Tstore, class Tq>
     void write_vu(Tq const& q)
     {
-        Tstore u[util::euleb_count<Tstore, Tq>::value];
+        Tstore u[util::euleb_max<Tstore, Tq>::value];
         size_t c = util::euleb(q, u);
         static_cast<Derived*>(this)->write_data(u, c);
     }
@@ -425,31 +469,33 @@ inline constexpr u64 pack_sa(size_t s, size_t a) { return (s << 8) | (a & 0xff);
 
 struct archive_sink
     : public archive
-    , public archive_write_util<archive_sink>
     , public archive_pointer_support<archive_sink>
     , public archive_vu_util<archive_sink>
+    , public data_align_policy
 {
     sink& sink_;
     fs_t written_;
     vfl m_flags;
 
 public:
-    archive_sink (sink& s, unsigned flags = 0)
-        : archive_write_util<archive_sink>(flags)
-        , sink_ (s)
+    archive_sink (sink& s, vfl flags = vfl::none)
+        : sink_ (s)
         , written_ (0)
+        , m_flags(flags)
     {}
 
     enum { is_reading = 0, is_writing = 1 };
 
     fs_t offset() const { return written_; }
 
+    void begin_array (size_t& size) { write_size(size); }
+
     template<class T>
     void write_single (T const& data) {
         write_with_error_check_p(&data, pack_sa(sizeof data, type_align<T>::value));
     }
 
-    template<class T>
+    template<class T, unsigned Mode = 0>
     void write_data (T const* src, size_t size) {
         write_with_error_check(src, sizeof(T) * size, type_align<T>::value);
     }
@@ -458,56 +504,113 @@ public:
 
 private:
     void align_stream(size_t alignment);
+    void write_size(size_t size);
     void write_with_error_check(void const* src, size_t size, size_t alignment);
     void write_with_error_check_p(void const* src, u64 size_align);
 };
 
+// struct archive_source
+//     : archive
+// {
+//     source& source_;
+
+//     archive_source (source& src) : source_(src) { }
+
+//     fs_t offset() const { return source_.offset(); }
+
+//     enum { is_reading = 1, is_writing = 0 };
+
+//     void begin_array (size_t& size) { size = read_size(); }
+//     void end_array () {}
+
+//     template<class T>
+//     void read_single(T& data) {
+// #if 1
+//         // read_aligned_with_error_check(&data, sizeof(T), type_align<T>::value);
+//         read_aligned_with_error_check_p(&data, pack_sa(sizeof(T), type_align<T>::value));
+// #else
+//         assert( sizeof(T) <= source_.avail());
+//         assert( util::is_aligned(m_offset, alignof(T)) && "stream alignment issues");
+
+//         // data = *reinterpret_cast<T*>(source_.data() + m_offset);
+//         m_offset = util::align(m_offset, type_align<T>::value);
+//         memcpy(&data, source_.data() + m_offset, sizeof data);
+//         m_offset += sizeof data;
+//         //source_.advance(sizeof(T), ec_);
+// #endif
+//     }
+
+//     template<class T, unsigned Mode>
+//     void read_data (T* dest, size_t size) {
+//         assert( size <= source_.avail());
+//         assert( util::is_aligned(source_.offset(), alignof(T)) && "stream alignment issues");
+//         memcpy (dest, source_.data() + source_.offset(), size * sizeof(T));
+//         std::error_code ec;
+//         source_.advance( size, ec );
+//     }
+
+//     prefix read_prefix(prefix_ext* ext);
+
+// private:
+//     size_t read_size();
+//     void read_aligned_with_error_check(void* dest, size_t size, size_t alignment);
+//     void read_aligned_with_error_check_p(void* dest, u64 size_align);
+// };
+
 struct archive_memory
     : archive
     , archive_vu_util<archive_memory>
+    , data_align_policy
 {
-    // source& source_;
-    // size_t m_offset;
+    char const* m_data_begin;
+    size_t m_data_size;
+    char const* m_data;
 
-    source& source_;
+    archive_memory (std::span<const char> data) : m_data_begin (data.data()), m_data_size(data.size()) {
+        m_data = m_data_begin;
+    }
 
-    archive_memory (source& src) : source_ (src) {}
+    archive_memory (char const* data, size_t size) : m_data_begin (data), m_data_size(size) {
+        m_data = m_data_begin;
+    }
 
-    fs_t offset() const { return source_.offset(); }
+    fs_t offset() const { return m_data - m_data_begin; }
 
     enum { is_reading = 1, is_writing = 0 };
 
-    template<class T>
-    void read_single(T& data) {
-#if 1
-        // read_aligned_with_error_check(&data, sizeof(T), type_align<T>::value);
-        read_aligned_with_error_check_p(&data, pack_sa(sizeof(T), type_align<T>::value));
-#else
-        assert( sizeof(T) <= source_.avail());
-        assert( util::is_aligned(m_offset, alignof(T)) && "stream alignment issues");
+    void begin_array (size_t& size) { size = read_size(); }
+    void end_array () {}
 
-        // data = *reinterpret_cast<T*>(source_.data() + m_offset);
-        m_offset = util::align(m_offset, type_align<T>::value);
-        memcpy(&data, source_.data() + m_offset, sizeof data);
-        m_offset += sizeof data;
-        //source_.advance(sizeof(T), ec_);
-#endif
+    // float read_float() { return reinterpret_cast<float const*>(m_data += sizeof(float))[-1]; }
+    // double read_double() { return reinterpret_cast<double const*>(m_data += sizeof(double))[-1]; }
+    // void read_single(float& data) { data = read_float(); }
+    // void read_single(double& data) { data = read_double(); }
+
+    template<class T>
+        requires (std::is_integral_v<T> || std::is_floating_point_v<T>)
+    void read_single(T& data) {
+        char const* p = (char const*)align((uintptr_t)m_data, type_align<T>::value);
+        data = *reinterpret_cast<T const*>(p);
+        m_data = p + sizeof(T);
     }
 
-    template<class T>
+    template<class T, unsigned Mode>
     void read_data (T* dest, size_t size) {
-        assert( size <= source_.avail());
-        assert( util::is_aligned(source_.offset(), alignof(T)) && "stream alignment issues");
-        memcpy (dest, source_.data() + source_.offset(), size * sizeof(T));
-        std::error_code ec;
-        source_.advance( size, ec );
+        size_t total = size * sizeof(T);
+        char const* p = (char const*)align((uintptr_t)m_data, type_align<T>::value);
+        memcpy (dest, p, total);
+        m_data = p + total;
     }
 
     prefix read_prefix(prefix_ext* ext);
 
 private:
-    void read_aligned_with_error_check(void* dest, size_t size, size_t alignment);
-    void read_aligned_with_error_check_p(void* dest, u64 size_align);
+    size_t read_size();
+    void read_single(void* data, size_t size);
+    void assing_unaligned(u8* p);
+    void assing_unaligned(u16* p);
+    void assing_unaligned(u32* p);
+    void assing_unaligned(u64* p);
 };
 
 struct archive_vector_out
@@ -518,7 +621,7 @@ struct archive_vector_out
 {
     std::vector<char> data;
 
-    archive_vector_out(unsigned version_flags = 0)
+    archive_vector_out(vfl version_flags = vfl::none)
         : archive_write_util<archive_vector_out>(version_flags)
     {}
 

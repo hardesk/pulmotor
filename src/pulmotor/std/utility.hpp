@@ -7,7 +7,8 @@
 namespace pulmotor
 {
 
-template<class F, class S> struct class_version<std::pair<F, S>> { enum { value = pulmotor::no_version }; };
+template<class F, class S>
+struct class_version<std::pair<F, S>> { enum { value = pulmotor::no_prefix }; };
 
 template<class Ar, class F, class S>
 inline void serialize(Ar& ar, std::pair<F, S>& p)

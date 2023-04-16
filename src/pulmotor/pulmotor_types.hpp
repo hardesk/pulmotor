@@ -29,12 +29,13 @@ typedef std::string path_string;
 
 typedef u64 fs_t; // type used to store file size
 
-enum { header_size = 8 };
+enum : u16 {
+    header_size         = 8u,
+    default_version		= 1u,
+};
+
 enum class vfl : u16
 {
-    no_prefix				    = 0xffffu,
-    no_version					= 0xffffu, // value that is transformed into ver_flag_no_version
-    default_version				= 0u,
 
     // object pointer was null when writing
     null_ptr		        	=  0x8000u,
@@ -63,16 +64,15 @@ constexpr inline bool operator!=(vfl a, unsigned b) { return (unsigned)a != b; }
 constexpr inline vfl& operator|=(vfl& a, vfl b) { a = (vfl)((unsigned)a | (unsigned)b); return a; }
 constexpr inline vfl& operator&=(vfl& a, vfl b) { a = (vfl)((unsigned)a & (unsigned)b); return a; }
 
-constexpr static const u16 no_version = (u16)vfl::no_version;
+constexpr static const u16 no_prefix = (u16)0;
 
 #define PULMOTOR_TEXT_INTERNAL_PREFIX "pulM"
 
 struct prefix
 {
-    constexpr bool store() const { return version == (unsigned)vfl::no_prefix; }
+    constexpr bool store() const { return version != no_prefix; }
 
-    constexpr bool is_versioned() const { return version != (unsigned)vfl::no_version; }
-    constexpr bool is_default_version() const { return version == (unsigned)vfl::default_version; }
+    constexpr bool is_default_version() const { return version == (unsigned)default_version; }
 
     constexpr bool is_nullptr() const { return (flags & vfl::null_ptr) != 0; }
     constexpr bool wants_construct() const { return (flags & vfl::wants_construct) != 0; }
@@ -84,6 +84,8 @@ struct prefix
     constexpr prefix reflag(vfl set, vfl clear = vfl::none) const {
         return prefix { version, (flags & ~clear) | set };
     }
+
+    bool operator==(prefix const&) const = default;
 
     u16 version;
     vfl flags;
@@ -110,57 +112,62 @@ struct target_traits
     static target_traits const be_lp64;
 };
 
-template<class T, class = void> struct has_version_member : std::false_type {};
-template<class T>               struct has_version_member<T, std::void_t<char [(std::is_convertible<decltype(T::version), unsigned>::value) ? 1 : -1]> > : std::true_type {};
-
-template<class T> struct class_version	: std::integral_constant<unsigned, 0U> {};
-template<class T> struct class_flags	: std::integral_constant<unsigned, 0U> {};
+template<class T> struct class_version	: std::integral_constant<unsigned, default_version> {};
+template<class T> struct class_flags	: std::integral_constant<vfl, vfl::none> {};
 template<class T> struct type_align	    : std::integral_constant<unsigned, alignof(T)> {};
 
+// template<> struct type_format<vec4, yaml_archive> : std::integral_constant<unsigned, yaml::fmt_flags::flow> {};
+
+template<class Ar, class T> struct is_primitive_type : std::integral_constant<bool, std::is_arithmetic<T>::value> {};
+
+// define version as no_prefix to disable writing a prefix
 #define PULMOTOR_DECL_VERSION(T, V) \
     template<> struct ::pulmotor::class_version<T> : std::integral_constant<unsigned, (unsigned)V> {}
 
-#define PULMOTOR_DECL_VERFLAGS(T, V, F) \
-    template<> struct ::pulmotor::class_version<T> : std::integral_constant<unsigned, (unsigned)V> {}; \
-    template<> struct ::pulmotor::class_flags<T> : std::integral_constant<unsigned, (unsigned)F> {}
+// #define PULMOTOR_DECL_FLAGS(T, F) \
+//     template<> struct ::pulmotor::class_flags<T> : std::integral_constant<vfl, F> {}
+
+// #define PULMOTOR_DECL_VERFLAGS(T, V, F) \
+//     template<> struct ::pulmotor::class_version<T> : std::integral_constant<unsigned, (unsigned)V> {}; \
+//     template<> struct ::pulmotor::class_flags<T> : std::integral_constant<unsigned, (unsigned)F> {}
 
 namespace impl
 {
-    template<class T, class = void > struct has_version : std::false_type {};
-    template<class T>                struct has_version<T, std::void_t< decltype(T::version) > > : std::true_type {};
-
-    template<class T, class = void > struct version : std::integral_constant<unsigned, class_version<T>::value> {};
-    template<class T>                struct version<T, std::void_t<decltype(T::version)> > : std::integral_constant<unsigned, T::serialize_version> {};
+    template<class T, class = void > struct has_version_member : std::false_type {};
+    template<class T>                struct has_version_member<T, std::void_t< decltype(T::version) > > : std::true_type {};
 
     template<class T>
-    struct flags : std::integral_constant<vfl, !has_version<T>::value ? vfl::no_version : vfl::none> {};
+    consteval u16 get_version() {
+        if constexpr (requires { T::serialize_version; std::convertible_to<decltype(T::serialize_version), unsigned>; })
+            return T::serialize_version;
+        else if constexpr (requires { T::version; std::convertible_to<decltype(T::version), unsigned>; })
+            return T::version;
+        else
+            return class_version<T>::value;
+    }
+    // template<class T, class = void > struct version : std::integral_constant<unsigned, class_version<T>::value> {};
+    // template<class T>                struct version<T, std::void_t<decltype(T::version)> > : std::integral_constant<unsigned, T::version> {};
+
+    template<class T>
+    struct flags : std::integral_constant<vfl, vfl::none> {};
 }
 
 template<class T>
 struct type_util
 {
-    using has_version = impl::has_version<T>;
-    using version = impl::version<T>;
+    using has_version_member = impl::has_version_member<T>;
+    using version = std::integral_constant<unsigned, impl::get_version<T>()>;
     using flags = impl::flags<T>;
     using align = type_align<T>;
 
+    // customization point to treat a specific type as a primitive for a specific archive
+    template<class Ar>
+    using is_primitive = is_primitive_type<Ar, T>;
+    template<class Ar> static constexpr bool is_primitive_v = is_primitive<Ar>::value;
+
     static constexpr prefix extract_prefix() { return prefix{ version::value, flags::value }; }
+    static constexpr bool store_prefix() { return version::value != (unsigned)no_prefix; }
 };
-
-
-
-// template<class T, class = void>
-// struct get_meta : std::integral_constant<unsigned,
-// 	(unsigned)class_version<T>::value == (unsigned)no_version
-// 		? (unsigned)ver_flag_no_version|0u
-// 		: (unsigned)class_version<T>::value>
-// {};
-// template<class T>
-// struct get_meta<T, std::void_t< decltype(T::version) > > : std::integral_constant<unsigned,
-// 	(unsigned)T::version == (unsigned)no_version
-// 		? (unsigned)ver_flag_no_version|0u
-// 		: (unsigned)T::version>
-// {};
 
 #define PULMOTOR_VERSION(T, v) template<> struct ::pulmotor::class_version<T> { enum { value = v }; }
 
@@ -293,8 +300,6 @@ struct ctor_pure : D
 
     template<class... Args> auto operator()(Args&&... args) const { return cf(args...); }
 };
-
-
 
 #define PULMOTOR_implPSTR(x) #x
 #define PULMOTOR_PSTR(x) PULMOTOR_implPSTR(x)

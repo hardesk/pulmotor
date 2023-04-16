@@ -6,6 +6,8 @@
 #include <string>
 using namespace std::string_literals;
 
+#include <typeinfo>
+
 
 #define TEST_ID1 dog
 #define PRINT_ARG1(x) "one:" PULMOTOR_PSTR(x)
@@ -118,6 +120,9 @@ TEST_CASE("type list")
     CHECK( (tl::index<float, l3>::value) == 1);
     CHECK( (tl::index<X, l3>::value) == 2);
     CHECK( (tl::index<unsigned, l3>::value) >= 3);
+
+    // std::cout << "type: " << util::dm(typeid(l3::pop_front).name()) << "\n";
+    CHECK( (std::is_same<typename l3::pop_front, tl::list<float, X>>::value) == true);
 }
 
 TEST_CASE("scoped exit")
