@@ -229,19 +229,20 @@ void archive_sink::align_stream(size_t al) {
     }
 }
 
-void archive_sink::write_prefix(prefix pre, prefix_ext const* ppx) {
-    std::error_code ec;
-    written_ += binary_write_prefix(sink_, ec, written_, m_flags, pre, ppx, data_align_policy{});
-    if (ec) PULMOTOR_THROW_SYSTEM_ERROR(ec, "while writing prefix");
+void archive_sink::begin_object(prefix const& px, prefix_ext* pxx) {
+    if (px.store()) {
+        std::error_code ec;
+        written_ += binary_write_prefix(sink_, ec, written_, m_flags, const_cast<prefix&>(px), pxx, data_align_policy{});
+        if (ec) PULMOTOR_THROW_SYSTEM_ERROR(ec, "while writing prefix");
+    }
 }
 
 void archive_sink::write_size(size_t size) {
     std::error_code ec;
     vu_size_t temp[util::euleb_max<vu_size_t, size_t>::value];
     size_t count = util::euleb(size, temp);
-    sink_.write(temp, count * sizeof(vu_size_t), ec);
-    if (ec) PULMOTOR_THROW_SYSTEM_ERROR(ec, "failed to write vu size");
-    written_ += count * sizeof(vu_size_t);
+    written_ += write_with_error_check_impl(sink_, ec, written_, temp, count * sizeof(vu_size_t), type_align<vu_size_t>::value, *this);
+    if (ec) PULMOTOR_THROW_SYSTEM_ERROR(ec, "error while writing vu size");
 }
 
 template<align_policy AlighPolicy>
@@ -309,23 +310,26 @@ void archive_memory::read_single(void* data, size_t size)
     m_data += size;
 }
 
-prefix archive_memory::read_prefix(prefix_ext* px)
+void archive_memory::begin_object(prefix const& px, prefix_ext* pxx)
 {
-    prefix const* p = reinterpret_cast<prefix const*>(util::align(m_data, type_align<prefix>::value));
-    m_data = (char const*)p + sizeof(prefix);
+    // px comes with the values "from code", but is overwritten if a prefix is
+    // expected to be present in the stream.
+    if (px.store()) {
+        prefix const* p = reinterpret_cast<prefix const*>(util::align(m_data, type_align<prefix>::value));
+        m_data = (char const*)p + sizeof(prefix);
 
-    if (p->has_garbage()) {
-        u16 const* garbage_len = (u16 const*)util::align(m_data, type_align<u16>::value);
-        if (p->has_dbgstr() && px) {
-            size_t name_len = 0;
-            char const* name_len_e = util::align((char const*)garbage_len + sizeof(u16), type_align<prefix_vu_t>::value);
-            char const* name_start = (char const*)garbage_len + sizeof(u16) + util::decode(name_len, (prefix_vu_t*)name_len_e) * sizeof(prefix_vu_t);
-            px->class_name = std::string_view(name_start, name_len);
+        if (p->has_garbage()) {
+            u16 const* garbage_len = (u16 const*)util::align(m_data, type_align<u16>::value);
+            if (p->has_dbgstr() && pxx) {
+                size_t name_len = 0;
+                char const* name_len_e = util::align((char const*)garbage_len + sizeof(u16), type_align<prefix_vu_t>::value);
+                char const* name_start = (char const*)garbage_len + sizeof(u16) + util::decode(name_len, (prefix_vu_t*)name_len_e) * sizeof(prefix_vu_t);
+                pxx->class_name = std::string_view(name_start, name_len);
+            }
+            m_data += *garbage_len;
         }
-        m_data += *garbage_len;
+        const_cast<prefix&>(px) = *p;
     }
-
-    return *p;
 }
 
 void archive_memory::assing_unaligned(u8* p) {

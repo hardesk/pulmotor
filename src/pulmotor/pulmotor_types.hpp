@@ -66,7 +66,7 @@ constexpr inline vfl& operator&=(vfl& a, vfl b) { a = (vfl)((unsigned)a & (unsig
 
 constexpr static const u16 no_prefix = (u16)0;
 
-#define PULMOTOR_TEXT_INTERNAL_PREFIX "pulM"
+#define PULMOTOR_TEXT_INTERNAL_PREFIX "pulM_"
 
 struct prefix
 {
@@ -87,8 +87,11 @@ struct prefix
 
     bool operator==(prefix const&) const = default;
 
-    u16 version;
-    vfl flags;
+    constexpr u32 combine() const { return u32( ((u16)flags << 16) | version ); }
+    static constexpr prefix from_u32(u32 vf) { return prefix { u16(vf & 0xffffu), (vfl)(vf >> 16) }; }
+
+    u16 version = no_prefix;
+    vfl flags = vfl::none;
 };
 
 struct prefix_ext
@@ -113,8 +116,8 @@ struct target_traits
 };
 
 template<class T> struct class_version	: std::integral_constant<unsigned, default_version> {};
-template<class T> struct class_flags	: std::integral_constant<vfl, vfl::none> {};
 template<class T> struct type_align	    : std::integral_constant<unsigned, alignof(T)> {};
+template<class T, class Ar = void> struct class_flags	: std::integral_constant<vfl, vfl::none> {};
 
 // template<> struct type_format<vec4, yaml_archive> : std::integral_constant<unsigned, yaml::fmt_flags::flow> {};
 
@@ -235,11 +238,11 @@ struct romu_q32
 template<class T>
 struct nv_t
 {
-    using value_type = T;
+    using value_type = std::remove_cvref_t<T>;
 
     char const* name;
     size_t name_length;
-    T obj;
+    T& obj;
 
     // nv_t(char const* name_, size_t namelength, T const& o)
     //     : name(name_), name_length(namelength), obj(const_cast<T&>(o))
@@ -252,14 +255,14 @@ struct nv_t
 template<class T>
 constexpr inline nv_t<T> nvl( char const* name, T const& a) { return nv_t<T>(name, strlen(name), a); }
 
-template<class T, size_t N>
-    requires (std::is_scalar<T>::value)
+// template<class T, size_t N>
+    // requires (std::is_scalar<T>::value)
 // constexpr inline nv_t<T> nv( char const (&name)[N], T const& a) { return nv_t<T>(name, N - 1, a); }
-constexpr inline nv_t<T> nv( char const (&name)[N], T a) { return nv_t<T>{ name, N-1, a }; }
+// constexpr inline nv_t<T> nv( char const (&name)[N], T a) { return nv_t<T>{ name, N-1, a }; }
 
 template<class T, size_t N>
-    requires (!std::is_scalar<T>::value)
-// constexpr inline nv_t<T> nv( char const (&name)[N], T const& a) { return nv_t<T>(name, N - 1, a); }
+//     requires (!std::is_scalar<T>::value)
+// // constexpr inline nv_t<T> nv( char const (&name)[N], T const& a) { return nv_t<T>(name, N - 1, a); }
 constexpr inline nv_t<T&> nv( char const (&name)[N], T const& a) { return nv_t<T&>{ name, N-1, const_cast<T&>(a) }; }
 
 template<class T>
@@ -311,7 +314,7 @@ struct ctor_pure : D
 
 #define PULMOTOR_NV_IMPL_1(property) ::pulmotor::nv(#property, property)
 #define PULMOTOR_NV_IMPL_2(name, property) ::pulmotor::nv(name, property)
-#define NV(...) PULMOTOR_OVERLOAD(PULMOTOR_NV_IMPL_, __VA_ARGS__)
+#define NV(...) PULMOTOR_POVERLOAD(PULMOTOR_NV_IMPL_, __VA_ARGS__)
 
 template<class T> struct is_nvp : public std::false_type {};
 template<class T> struct is_nvp<nv_t<T>> : public std::true_type {};

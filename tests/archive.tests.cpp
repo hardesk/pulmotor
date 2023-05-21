@@ -307,7 +307,7 @@ TEST_CASE("pulmotor archive")
         SUBCASE("basic")
         {
             pulmotor::archive_sink ar(sv);
-            ar.write_prefix(prefix{ 1337, vfl::none });
+            ar.begin_object(prefix{ 1337, vfl::none });
             size_t offset = 0;
             CHECK(ar_check<prefix>::pull(sv.data(), offset) == prefix{ 1337, vfl::none });
             CHECK(sv.data().size() == sizeof(prefix));
@@ -317,7 +317,7 @@ TEST_CASE("pulmotor archive")
         {
             pulmotor::archive_sink ar(sv, vfl::debug_string);
             prefix_ext pxe { "class.A" };
-            ar.write_prefix(prefix{ 1337, vfl::none }, &pxe);
+            ar.begin_object(prefix{ 1337, vfl::none }, &pxe);
 
             size_t offset = 0;
             prefix px { 1337, vfl::garbage|vfl::debug_string };
@@ -330,7 +330,7 @@ TEST_CASE("pulmotor archive")
         SUBCASE("forced align")
         {
             pulmotor::archive_sink ar(sv, vfl::debug_string|vfl::align_object);
-            ar.write_prefix(prefix{1337, vfl::none});
+            ar.begin_object(prefix{1337, vfl::none});
             CHECK(util::is_aligned(ar.offset(), al));
 
             size_t offset = 0;
@@ -343,7 +343,7 @@ TEST_CASE("pulmotor archive")
         {
             pulmotor::archive_sink ar(sv, vfl::align_object|vfl::debug_string);
             prefix_ext pxe { "class.X" };
-            ar.write_prefix( prefix{ 1337, vfl::none }, &pxe);
+            ar.begin_object( prefix{ 1337, vfl::none }, &pxe);
 
             size_t offset = 0;
             CHECK(ar_check<prefix>::pull(sv.data(), offset) == prefix{ 1337, vfl::garbage|vfl::align_object|vfl::debug_string });

@@ -7,6 +7,9 @@
 
 namespace pulmotor {
 
+template<class K, class T, class C, class Al>
+struct class_version<std::map<K, T, C, Al>> { static unsigned const value = pulmotor::no_prefix; };
+
 template<class Ar, class K, class T, class C, class Al>
 void serialize(Ar& ar, std::map<K, T, C, Al>& m, unsigned version) {
 

@@ -387,9 +387,10 @@ struct archive_whole
 
     template<class T>
     void read_data (T* dest, size_t size) {
-        assert( size <= source_.avail());
-        memcpy( dest, source_.data(), size);
-        source_.advance( size, ec_ );
+        size_t sz = sizeof(T) * size;
+        assert( sz <= source_.avail());
+        memcpy( dest, source_.data(), sz);
+        source_.advance( sz, ec_ );
     }
 
     std::error_code ec_;
@@ -421,7 +422,8 @@ struct archive_chunked
         source_.fetch( &data, sizeof data, ec_ );
     }
 
-    void read_data (void* dest, size_t size)
+    template<class T>
+    void read_data (T* dest, size_t size)
     {
         assert( source_.offset() + size <= source_.size());
         source_.fetch( dest, size, ec_ );
@@ -455,8 +457,9 @@ struct archive_istream
         stream_.read((char*)&data, sizeof data);
     }
 
-    void read_data (void* dest, size_t size) {
-        stream_.read((char*)dest, size);
+    template<class T>
+    void read_data (T* dest, size_t size) {
+        stream_.read((char*)dest, size * sizeof(T));
     }
 
     std::error_code ec_;
@@ -484,11 +487,16 @@ public:
         , m_flags(flags)
     {}
 
-    enum { is_reading = 0, is_writing = 1 };
+    enum { is_reading = 0, is_writing = 1, is_keyvalue = 0 };
+
+    struct scope {};
+    scope m_scope = scope{};
+    scope& current_scope() { return m_scope; }
+    void restore_scope(scope) { }
 
     fs_t offset() const { return written_; }
 
-    void begin_array (size_t& size) { write_size(size); }
+    void begin_array (size_t const& size) { write_size(size); }
 
     template<class T>
     void write_single (T const& data) {
@@ -500,7 +508,8 @@ public:
         write_with_error_check(src, sizeof(T) * size, type_align<T>::value);
     }
 
-    void write_prefix(prefix pre, prefix_ext const* ppx = nullptr);
+    void begin_object(prefix const& pre, prefix_ext* ppx = nullptr);
+    // void write_prefix(prefix pre, prefix_ext const* ppx = nullptr);
 
 private:
     void align_stream(size_t alignment);
@@ -562,23 +571,28 @@ struct archive_memory
     , archive_vu_util<archive_memory>
     , data_align_policy
 {
-    char const* m_data_begin;
-    size_t m_data_size;
-    char const* m_data;
+    archive_memory() : m_data(nullptr), m_data_begin(nullptr), m_data_size(0) {}
 
-    archive_memory (std::span<const char> data) : m_data_begin (data.data()), m_data_size(data.size()) {
+    void init(char const* data, size_t size) {
+        m_data = m_data_begin = data;
+        m_data_size = size;
+    }
+
+    archive_memory (std::span<const char> data)
+    : m_data_begin (data.data()), m_data_size(data.size()) {
         m_data = m_data_begin;
     }
 
-    archive_memory (char const* data, size_t size) : m_data_begin (data), m_data_size(size) {
+    archive_memory (char const* data, size_t size)
+    : m_data_begin (data), m_data_size(size) {
         m_data = m_data_begin;
     }
 
     fs_t offset() const { return m_data - m_data_begin; }
 
-    enum { is_reading = 1, is_writing = 0 };
+    enum { is_reading = 1, is_writing = 0, is_keyvalue = 0 };
 
-    void begin_array (size_t& size) { size = read_size(); }
+    void begin_array (size_t const& size) { const_cast<size_t&>(size) = read_size(); }
     void end_array () {}
 
     // float read_float() { return reinterpret_cast<float const*>(m_data += sizeof(float))[-1]; }
@@ -602,7 +616,13 @@ struct archive_memory
         m_data = p + total;
     }
 
-    prefix read_prefix(prefix_ext* ext);
+    void begin_object(prefix const& pre, prefix_ext* ppx = nullptr);
+    // prefix read_prefix(prefix_ext* ext);
+
+private:
+    char const* m_data;
+    char const* m_data_begin;
+    size_t m_data_size;
 
 private:
     size_t read_size();

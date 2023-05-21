@@ -39,6 +39,8 @@ enum fmt_flags : unsigned {
     block_literal = 0x01, // block notation, literal style (|). keep newlines
     block_folded  = 0x02, // block notation, folded style (>). folds newlines
 
+    block_mask    = block_literal|block_folded,
+
     // if no EOL processing is specified, it is computed automatically based on value
     eol_clip	  = 0x04, // single newline at the end of the block
     eol_strip	  = 0x08, // no newlines at the end
@@ -63,6 +65,7 @@ enum fmt_flags : unsigned {
     wrap_shift    = 16
 };
 constexpr fmt_flags operator|(fmt_flags a, fmt_flags b) { return (fmt_flags)((unsigned)a | (unsigned)b); }
+constexpr fmt_flags operator|=(fmt_flags& a, fmt_flags b) { a = (fmt_flags)((unsigned)a | (unsigned)b); return a; }
 
 // sequence:
 // - VALUE
@@ -111,15 +114,30 @@ class writer1
         knd_sequence = 1,
         knd_mapping = 2
     };
+
+    enum stg : u8 {
+        stg_empty, stg_got_prefix, stg_got_indicator, stg_got_prop, stg_got_key, stg_got_value
+    };
+
+    enum pnd : u8 {
+        pnd_none, pnd_seq, pnd_map
+    };
+
     struct state
     {
-        u8 wr_flags = 0;
         u8 fmt = 0;
         u8 prefix = 0;
         ctx context:1 = ctx_block;
-        knd parent:2 = knd_scalar;
+        knd kind:2 = knd_scalar;
+
+        #define parent kind
+        // stg entry_stage:3 = stg_empty;
+
+        bool in_collection() const { return kind != knd_scalar; }
     };
 
+    stg m_line_stage = stg_empty;
+    pnd m_pending = pnd_none;
     state m_state;
     std::ostream& m_outs;
     std::vector<state> m_sstack;
@@ -292,7 +310,7 @@ class writer1
         char const* start = p;
         size_t w = 0;
 
-        bool indented = true;
+        bool indented = false;
         auto do_flush = [e, &start, &indented, indent, this]
             (char const* span_end, char const* new_start) {
             assert(span_end <= e);
@@ -376,11 +394,6 @@ class writer1
         return islb;
     }
 
-    void end_block_entry() {
-        if (m_state.context == ctx_block)
-            m_state.wr_flags &= ~(wr_some_value|wr_start_indicator);
-        out_linebreak();
-    }
     void out_linebreak() {
         out("\n");
     }
@@ -399,29 +412,33 @@ class writer1
         wr_start_indicator = 0x80,
         wr_flow_content = 0x40, // when in flow style and some content is written in a collection
         wr_alias = 0x20,
+        wr_line_done = 0x10,
         wr_some_content = wr_property|wr_key|wr_value|wr_alias,
         wr_some_value = wr_property|wr_value|wr_alias,
     };
 
-    void write_block_style_indicator(fmt_flags fflags)
+    bool write_block_style_indicator(fmt_flags fflags)
     {
-        assert((m_state.wr_flags & wr_value) == 0);
 
         if (fflags & block_folded) {
             out('>');
         } else if (fflags & block_literal)
             out('|');
 
-        if (fflags & eol_strip)
-            out('-');
-        else if (fflags & eol_keep)
-            out('+');
+        if (fflags & (block_folded|block_literal)) {
+            if (fflags & eol_strip)
+                out('-');
+            else if (fflags & eol_keep)
+                out('+');
+
+            return true;
+        }
+
+        return false;
     }
 
     bool write_start_indicator(fmt_flags flags) // [ or { or - or ?
     {
-        assert( (m_state.wr_flags & wr_start_indicator) == 0);
-
         bool written = false;
 
         switch (m_state.parent) {
@@ -436,7 +453,6 @@ class writer1
                 if (m_state.context == ctx_block && (flags & fmt_flags::key_indicator))
                     out('?'), written = true;
                 else if (m_state.context == ctx_flow) {
-                    assert( (m_state.wr_flags & wr_key) == 0);
                     out('{'), written = true;
                 }
             break;
@@ -444,19 +460,15 @@ class writer1
             case knd_scalar: // nothing here, folding style is emitted in another function if any specified
             break;
         }
-        m_state.wr_flags |= wr_start_indicator;
         return written;
     }
 
     // basically this is a comma separating entries in flow formatting
     void write_entry_end_indicator() // [ or { or - or ?
     {
-        // assert ( (m_state.wr_flags & wr_entry_indicator) == 0);
-        // assert ( (m_state.wr_flags & wr_flow_content) );
         assert ( m_state.context == ctx_flow);
 
         out(',');
-        m_state.wr_flags &= ~(wr_some_content|wr_anchor);
     }
 
     fmt_flags recompute_eol_flags(std::string_view s, fmt_flags flags)
@@ -497,10 +509,10 @@ public:
 
 // prefix
 //  seq::
-//      block:: indicator alias? properties* value
+//      block:: indicator '*'alias? properties* value
 //      flow:: [ value , ]
 //  map::
-//      block:: indicator? key: alias? properties* value
+//      block:: indicator? key: '*'alias? properties* value
 //      flow:: { key : value }
 //
 // properties ::= !tag | &anchor
@@ -509,184 +521,345 @@ public:
 
     writer1(std::ostream& os)
     :   m_outs(os)
+    {}
+
+    // []
+
+    // -
+    //  -
+
+    // -
+    //  - a
+    // - []
+    // -
+    //  - []
+    //  -
+    //   -
+    //    - []
+    void prep_block_entry1(fmt_flags flags)
     {
+        assert(m_state.context == ctx_block);
+        assert(m_state.in_collection());
+
+        switch(m_line_stage)
+        {
+            case stg_empty:
+                out_prefix(m_state.prefix);
+            case stg_got_prefix:
+                if (write_start_indicator(flags))
+                    m_line_stage = stg_got_indicator;
+                break;
+            case stg_got_indicator:
+            case stg_got_prop:
+            case stg_got_key:
+                break;
+            case stg_got_value:
+                assert(!"should not prep when value already written");
+                break;
+        }
     }
 
-    void sequence(fmt_flags flags = fmt_flags::fmt_none)
+    void end_flow_entry1(fmt_flags flags)
     {
-        // assert ( (flags & fmt_flags::flow) == 0 && (m_state.fmt & fmt_flags::flow) == 0 && "flow to non flow is disallowed" );
-        bool is_scalar = m_state.parent == knd_scalar;
+        assert(m_state.context == ctx_flow);
+        assert(m_state.in_collection());
 
-        m_sstack.push_back(m_state);
-        m_state.parent = knd_sequence;
-        if (flags & fmt_flags::flow) {
-            if (!is_scalar) {
-                if (m_state.wr_flags & (wr_some_value))
-                    write_entry_end_indicator();
-                out_space();
+        switch(m_line_stage)
+        {
+            case stg_got_indicator:
+                assert(!"should not enter 'inicator' stage in flow mode");
+            case stg_got_prefix:
+            case stg_empty:
+                break;
+            case stg_got_prop:
+            case stg_got_key:
+            case stg_got_value:
+                out(',');
+                break;
+        }
+    }
+
+    void clear_out_pending(fmt_flags flags)
+    {
+        if (m_pending != pnd_none) {
+
+            switch(m_line_stage)
+            {
+                case stg_empty:
+                case stg_got_prefix:
+                    break;
+                case stg_got_indicator:
+                case stg_got_prop:
+                case stg_got_key:
+                case stg_got_value:
+                    out_linebreak();
+                    m_line_stage = stg_empty;
+                    break;
             }
-            out("[");
-            m_state.context = ctx_flow;
-            m_state.wr_flags = wr_start_indicator;
-        } else {
-            // no point is writing item indicator here, as it will have to written in value writing on non-first array item
-            // thus to concentrate logic in one place, write indicators there only.
-            // out("-");
-            if (!is_scalar)
-                prepare_block_entry(flags);
 
-            if (m_state.context == ctx_flow)
-                PULMOTOR_THROW_FMT_ERROR("Can not go from flow to block context");
-            m_state.context = ctx_block;
-            m_state.wr_flags = 0;
-            if (!is_scalar)
-                out_linebreak(), m_state.prefix++;
-            // prepare_block_entry(flags);
+            if (m_line_stage < stg_got_prefix) {
+                out_prefix(m_state.prefix);
+                m_line_stage = stg_got_prefix;
+            }
+            if (write_start_indicator(flags))
+                m_line_stage = stg_got_indicator;
+
+            m_pending = pnd_none;
         }
     }
 
     void mapping(fmt_flags flags = fmt_flags::fmt_none)
     {
-        // assert ( (flags & fmt_flags::flow) == 0 && (m_state.fmt & fmt_flags::flow) == 0 && "flow to non flow is disallowed" );
-        bool is_scalar = m_state.parent == knd_scalar;
+        clear_out_pending(flags);
+
+        m_pending = pnd_map;
+
         m_sstack.push_back(m_state);
 
-        if ((flags & fmt_flags::flow) || m_state.context == ctx_flow) {
-            if (!is_scalar) {
-                if (m_state.wr_flags & (wr_some_value))
-                    write_entry_end_indicator();
-                out_space();
-            }
-            out("{");
-            m_state.context = ctx_flow;
-            m_state.wr_flags = wr_start_indicator;
-        } else {
-            if (!is_scalar)
-                prepare_block_entry(flags);
-            m_state.wr_flags = 0;
-            m_state.context = ctx_block;
-            if (!is_scalar) {
-                out_linebreak(), m_state.prefix++;
-            }
-        }
-
-        m_state.parent = knd_mapping;
+        m_state.fmt = 0;
+        if (m_state.in_collection())
+            m_state.prefix++;
+        m_state.context = (flags & fmt_flags::flow) ? ctx_flow : ctx_block;
+        m_state.kind = knd_mapping;
     }
 
-    void end_collection()
+    void sequence(fmt_flags flags = fmt_flags::fmt_none)
     {
-        bool is_flow = m_state.context == ctx_flow;
-        if (is_flow) {
-            if (m_state.parent == knd_sequence)
-                out_space(), out(']');
-            else if (m_state.parent == knd_mapping)
-                out_space(), out('}');
-        }
+        clear_out_pending(flags);
+        m_pending = pnd_seq;
+        m_sstack.push_back(m_state);
 
-        assert(!m_sstack.empty());
-        m_state = m_sstack.back();
-        m_sstack.pop_back();
-
-        // we've written value for this entry, mark it as so
-        m_state.wr_flags |= wr_value;
-
-        // if (m_state.context == ctx_block && (m_state.wr_flags & wr_some_content))
-        //     end_block_entry();
+        m_state.fmt = 0;
+        if (m_state.in_collection())
+            m_state.prefix++;
+        m_state.context = (flags & fmt_flags::flow) ? ctx_flow : ctx_block;
+        m_state.kind = knd_sequence;
+        // m_line_stage = stg_empty;
     }
 
-    void prepare_block_entry(fmt_flags flags)
+    void value(std::string_view v, fmt_flags flags = fmt_flags::fmt_none)
     {
-        assert(m_state.parent != knd_scalar);
-        if ( (m_state.wr_flags & wr_start_indicator) == 0) {
-            out_prefix(m_state.prefix);
-            write_start_indicator(flags);
-        }
-    }
+        // move to next line if needed and write the indicator
+        clear_out_pending(flags);
+        size_t indent = 0;
 
-    static constexpr unsigned add_indent = 1;
-
-    void force_start_entry()
-    {
-        if (m_state.context == ctx_flow) {
-            if (m_state.wr_flags & (wr_tag))
-                out_space();
-            write_entry_end_indicator();
-        } else
+        // we've finished the (previous) line, move on to the next one
+        if (m_line_stage >= stg_got_value) {
             out_linebreak();
-
-        m_state.wr_flags &= ~wr_some_content;
-    }
-
-    void value(std::string_view v, fmt_flags flags = fmt_none)
-    {
-        switch(m_state.context)
-        {
-            case ctx_flow:
-                assert(m_state.wr_flags & wr_start_indicator);
-                assert((m_state.wr_flags & wr_alias) == 0 && "entry already has an alias, can't write value");
-
-                if (m_state.wr_flags & (wr_value|wr_alias))
-                    write_entry_end_indicator();
-
-                m_state.wr_flags |= wr_value;
-                out_space();
-                break;
-            case ctx_block:
-                if (m_state.parent != knd_scalar) {
-                    prepare_block_entry(flags);
-                    out_space();
-                }
-
-                // TODO: compute EOL handling only for blocks?
-                if ((flags & (block_folded|block_literal)) && (flags & fmt_flags::eol_mask) == 0) {
-                    flags = recompute_eol_flags(v, flags);
-                }
-
-                // write any literal/folder indicators if we need to
-                if (flags & (block_folded|block_literal)) {
-                    write_block_style_indicator(flags);
-                    end_block_entry();
-                    out_prefix(m_state.prefix + add_indent);
-                }
-                break;
+            m_line_stage = stg_empty;
         }
 
-        bool text_ends_with_linebreak = false;
-        if (flags & (fmt_flags::is_text|fmt_flags::single_quoted|fmt_flags::double_quoted)) {
+        // prepare this line for value
+        switch (m_line_stage)
+        {
+        case stg_empty:
+            out_prefix(m_state.prefix);
+        case stg_got_prefix:
+            if (write_start_indicator(flags))
+                m_line_stage = stg_got_indicator;
+        case stg_got_indicator:
+        case stg_got_key:
+            if (flags & block_mask) {
+                if ((flags & block_mask) && (flags & fmt_flags::eol_mask) == 0)
+                    flags = recompute_eol_flags(v, flags);
+
+                if (write_block_style_indicator(flags))
+                    indent = add_indent;
+                out_linebreak();
+                // out_prefix(m_state.prefix);
+            } else // !!!!
+        case stg_got_prop:
+            if (m_line_stage > stg_got_prefix)
+                out_space();
+            break;
+        case stg_got_value:
+            assert(!"unexpected stage");
+            break;
+        }
+
+        // bool text_ends_with_linebreak = false;
+        if ((flags & (fmt_flags::is_text|fmt_flags::single_quoted|fmt_flags::double_quoted)) ||
+            (flags & (fmt_flags::block_mask|fmt_flags::eol_mask))) {
             size_t wrap = (flags & fmt_flags::wrap_mask) >> fmt_flags::wrap_shift;
-            text_ends_with_linebreak = out_text_block(v, flags, m_state.prefix + add_indent, wrap);
+            bool text_ends_with_linebreak = out_text_block(v, flags, m_state.prefix + indent, wrap);
+            // out_text_block(v, flags, m_state.prefix + indent, wrap);
+            if (!text_ends_with_linebreak)
+                out_linebreak();
+            m_line_stage = stg_empty;
         } else {
             out_raw(v);
+            if (!v.empty())
+                out_linebreak();
+            m_line_stage = stg_empty;
         }
 
-        if (!text_ends_with_linebreak && m_state.context != ctx_flow)
-            end_block_entry();
+        // m_line_stage = stg_got_value;
     }
 
     void key(std::string_view k, fmt_flags flags = fmt_none)
     {
-        assert(m_state.parent == knd_mapping);
+        // move to next line if needed and write the indicator
+        clear_out_pending(flags);
+        size_t indent = 0;
 
-        if (m_state.context == ctx_flow) {
-            assert((m_state.wr_flags & wr_start_indicator) != 0);
-            if (m_state.wr_flags & (wr_value|wr_alias|wr_tag))
-                write_entry_end_indicator();
-            out_space();
-        } else {
-            assert(m_state.context == ctx_block);
-            if ( (m_state.wr_flags & wr_start_indicator) == 0) {
+        // we've finished the (previous) line, move on to the next one
+        if (m_line_stage >= stg_got_key) {
+            out_linebreak();
+            m_line_stage = stg_empty;
+        }
+
+        // prepare this line for value
+        switch (m_line_stage)
+        {
+        case stg_empty:
+            out_prefix(m_state.prefix);
+        case stg_got_prefix:
+            if (write_start_indicator(flags))
+                m_line_stage = stg_got_indicator;
+        case stg_got_indicator:
+        case stg_got_key:
+        case stg_got_prop:
+            if (m_line_stage > stg_got_prefix)
+                out_space();
+            break;
+        case stg_got_value:
+            assert(!"unexpected stage");
+            break;
+        }
+
+        out_raw(k);
+        out(':');
+
+        m_line_stage = stg_got_key;
+    }
+
+
+    void tag(std::string_view v, fmt_flags flags = fmt_flags::fmt_none)
+    {
+        // move to next line if needed and write the indicator
+        clear_out_pending(flags);
+
+        if (m_state.in_collection()) {
+
+            // we've finished the (previous) line, move on to the next one
+            // tag cannot come after value, thus if tag comes after a value, it mean a new line start
+            if (m_line_stage >= stg_got_value) {
+                out_linebreak();
+                m_line_stage = stg_empty;
+            }
+
+            // prepare this line for tag
+            switch (m_line_stage)
+            {
+            case stg_empty:
                 out_prefix(m_state.prefix);
+            case stg_got_prefix:
                 if (write_start_indicator(flags))
-                    out_space();
+                    m_line_stage = stg_got_indicator;
+            case stg_got_indicator:
+            case stg_got_prop:
+            case stg_got_key:
+                out_space();
+                break;
+            case stg_got_value:
+                assert(!"unexpected stage");
+                break;
             }
         }
 
-        out(k);
-        out(':');
+        out(v);
 
-        m_state.wr_flags |= wr_key;
-        m_state.wr_flags &= ~(wr_anchor|wr_tag); // now anchor or tag can be written again for this entry's value
+        m_line_stage = stg_got_prop;
     }
+
+    void anchor(std::string_view v, fmt_flags flags = fmt_flags::fmt_none)
+    {
+        // move to next line if needed and write the indicator
+        clear_out_pending(flags);
+
+        if (m_state.in_collection()) {
+
+            // we've finished the (previous) line, move on to the next one
+            // tag cannot come after value, thus if tag comes after a value, it mean a new line start
+            if (m_line_stage >= stg_got_value) {
+                out_linebreak();
+                m_line_stage = stg_empty;
+            }
+
+            // prepare this line for tag
+            switch (m_line_stage)
+            {
+            case stg_empty:
+                out_prefix(m_state.prefix);
+            case stg_got_prefix:
+                if (write_start_indicator(flags))
+                    m_line_stage = stg_got_indicator;
+            case stg_got_indicator:
+            case stg_got_prop:
+            case stg_got_key:
+                out_space();
+                break;
+            case stg_got_value:
+                assert(!"unexpected stage");
+                break;
+            }
+        }
+
+        out('&');
+        out(v);
+
+        m_line_stage = stg_got_prop;
+    }
+
+    void end_collection()
+    {
+        assert(!m_sstack.empty());
+        assert(m_state.in_collection());
+
+        knd closing_kind = m_state.kind;
+
+        m_state = m_sstack.back();
+        m_sstack.pop_back();
+
+        if (m_state.context == ctx_block) {
+
+            // pending != none, means our collection was empty. But line stage tells
+            // us what happens with the last line.
+            if (m_pending != pnd_none) {
+                switch (m_line_stage)
+                {
+                case stg_got_value:
+                    out_linebreak();
+                case stg_empty:
+                    out_prefix(m_state.prefix);
+                case stg_got_prefix:
+                    if (write_start_indicator(fmt_flags::fmt_none))
+                        m_line_stage = stg_got_indicator;
+                case stg_got_prop:
+                case stg_got_indicator:
+                    if (m_line_stage > stg_got_prefix)
+                        out_space();
+                    out( closing_kind == knd_sequence ? "[]"sv : closing_kind == knd_mapping ? "{}"sv : "*SSS*"sv);
+                    break;
+                case stg_got_key:
+                    // will mark as got value, although the value is 'empty'
+                    break;
+                }
+                m_line_stage = stg_got_value;
+                m_pending = pnd_none;
+            } else {
+                // otherwise, mean a value was written, thus we MUST move to the next line
+                // out_linebreak();
+                // m_line_stage = stg_empty;
+            }
+
+        } else {
+            out_space();
+            out(closing_kind == knd_sequence ? ']' : '}');
+        }
+    }
+
+    static constexpr unsigned add_indent = 1;
 
     void key_value(std::string_view a, std::string_view b)
     {
@@ -694,75 +867,12 @@ public:
         value(b);
     }
 
-    void tag(std::string_view v, fmt_flags flags = fmt_flags::fmt_none)
-    {
-        if (m_state.context == ctx_flow) {
-            assert(m_state.wr_flags & wr_start_indicator);
-            if (m_state.wr_flags & (wr_value|wr_alias) ||
-                ((m_state.wr_flags & wr_tag) && (flags & keep_entry) == 0))
-                write_entry_end_indicator();
-            out_space();
-        } else {
-            if (m_state.parent != knd_scalar) {
-                if ( (m_state.wr_flags & wr_start_indicator) == 0) {
-                    out_prefix(m_state.prefix);
-                    write_start_indicator(fmt_flags::fmt_none);
-                }
-                out_space();
-            }
-        }
-
-        out(v);
-        m_state.wr_flags |= wr_tag;
-    }
-
-    void prepare_flow_entry(fmt_flags flags) {
-        if (m_state.wr_flags & wr_value) {
-            write_entry_end_indicator();
-        } else
-            m_state.wr_flags |= wr_value;
-    }
-
-    void anchor(std::string_view v, fmt_flags flags = fmt_none)
-    {
-        if (m_state.context == ctx_flow) {
-            assert(m_state.wr_flags & wr_start_indicator);
-            if (m_state.wr_flags & (wr_value|wr_alias) ||
-                ((m_state.wr_flags & wr_anchor) && (flags & keep_entry) == 0) )
-                write_entry_end_indicator();
-        } else {
-            assert(m_state.context == ctx_block);
-            if (m_state.wr_flags & wr_value)
-                PULMOTOR_THROW_FMT_ERROR("anchor shall appear before value");
-            prepare_block_entry(flags);
-        }
-        out_space();
-
-        out('&');
-        out(v);
-
-        m_state.wr_flags |= wr_anchor;
-    }
-
-    void alias(std::string_view v, fmt_flags flags = fmt_none)
-    {
-        if (m_state.wr_flags & wr_property)
-            PULMOTOR_THROW_FMT_ERROR("alias entry shall not have any properties");
-
-        if (m_state.context == ctx_flow) {
-            assert(m_state.wr_flags & wr_start_indicator);
-            prepare_flow_entry(flags);
-        } else {
-            prepare_block_entry(flags);
-        }
-        out_space();
-
-        out('*');
-        out(v);
-
-        m_state.wr_flags |= wr_alias;
-    }
-
+    // void prepare_flow_entry(fmt_flags flags) {
+    //     if (m_state.wr_flags & wr_value) {
+    //         write_entry_end_indicator();
+    //     } else
+    //         m_state.wr_flags |= wr_value;
+    // }
 };
 
 struct writer
@@ -1079,6 +1189,7 @@ template<class T>
 struct printf_spec;
 
 template<> struct printf_spec< bool> { using cast_to = int; static constexpr char const* fmt = "%d"; };
+template<> struct printf_spec< char> { using cast_to = int; static constexpr char const* fmt = "%c"; };
 
 template<> struct printf_spec< std::int8_t> { using cast_to = std::int16_t; static constexpr char const* fmt = "%" PRId16; };
 template<> struct printf_spec<std::int16_t> { using cast_to = std::int16_t; static constexpr char const* fmt = "%" PRId16; };
@@ -1106,7 +1217,7 @@ struct encoder
     static void format_key(writer1& w, char const (&a)[N]) { w.key(std::string_view(a, N)); }
 
     template<class T>
-    static void format_value(writer1& w, T a, std::enable_if_t< std::is_floating_point_v<T>, fmt_flags> flags = 0) {
+    static void format_value(writer1& w, T a, std::enable_if_t< std::is_floating_point_v<T>, fmt_flags> flags = fmt_flags::fmt_none) {
         if constexpr (std::is_same<T, float>::value)
             sprintf_float(w, flags, a);
         else

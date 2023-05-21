@@ -55,10 +55,10 @@ struct archive
     archive(archive const&) = delete;
     archive& operator=(archive const&) = delete;
 
-    void begin_array (size_t& size) {}
+    void begin_array (size_t const& size) {}
     void end_array () {}
 
-    void begin_object () {}
+    void begin_object (prefix& px, prefix_ext* ppx) {}
     void end_object () {}
 
     void object_name(char const*) {}
@@ -142,6 +142,16 @@ constexpr void apply_serialization_mods(Ar& ar, mod_list<T, Ops...> const& ops) 
             using op_t = decltype(op);
             if constexpr( Ar::supported_mods::template has< typename op_t::type >::value )
                 op(ar);
+        }, ops);
+}
+
+template<class Ar, class Scope, class T, class... Ops>
+constexpr void apply_serialization_mods(Scope& s, mod_list<T, Ops...> const& ops) {
+    if constexpr (has_supported_mods<Ar>::value)
+        pulmotor::util::map( [&s](auto op) {
+            using op_t = decltype(op);
+            if constexpr( Ar::supported_mods::template has< typename op_t::type >::value )
+                op(s);
         }, ops);
 }
 

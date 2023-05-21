@@ -106,7 +106,7 @@ template<class T, bool FullControl>
 struct array_ref
 {
     using type = T;
-    enum { full = FullControl };
+    enum { full = FullControl }; // means we'll be calling begin_array on this
     T* data;
     size_t size;
 };
@@ -347,8 +347,8 @@ struct logic
                 } else if constexpr(std::is_pointer<Ta>::value) {
                     static_assert(!std::is_same<Ta, Ta>::value, "array of pointers is not supported");
                 } else {
-                    prefix p = logic<To>::s_prefix(ar);
-                    logic<To>::s_struct_array(ar, o, Na, p);
+                    // prefix p = logic<To>::s_prefix(ar);
+                    logic<To>::s_struct_array(ar, o, Na);
                 }
             } else {
                 using Ta = typename std::remove_extent<Tb>::type;
@@ -371,26 +371,34 @@ struct logic
             else if constexpr(std::is_pointer<Ta>::value) {
                 static_assert(!std::is_same<Ta, Ta>::value, "array of pointers is not supported");
             } else {
-                prefix p = logic<Ta>::s_prefix(ar);
-                logic<Ta>::s_struct_array(ar, o.data, o.size, p);
+                // prefix p = logic<Ta>::s_prefix(ar);
+                logic<Ta>::s_struct_array(ar, o.data, o.size);
             }
             ar.end_array();
         } else if constexpr(is_nv<Tb>::value) {
-            // using Tcontained = typename Tb::value_type;
+            using Tcontained = typename Tb::value_type;
             if constexpr (archive_t::is_writing) {
                 // ar.write_key(o.get_nameview());
-                // logic<Tcontained>::s_serialize(o.obj);
-                ar.write_named(o.get_nameview(), o.obj);
+                if constexpr(Ar::is_keyvalue) {
+                    // ar.set_key(std::string_view { o.name, o.name_length });
+                    // logic<Tcontained>::s_serializable(archive_context, o.obj);
+                    ar.write_named(o.get_nameview(), o.obj);
+                } else
+                    logic<Tcontained>::s_serializable(archive_context, o.obj);
             } else if constexpr (archive_t::is_reading) {
-                ar.read_named(o.get_nameview(), o.obj);
+                if constexpr(Ar::is_keyvalue) {
+                    // ar.set_key(std::string_view { o.name, o.name_length });
+                    // logic<Tcontained>::s_serializable(archive_context, o.obj);
+                    ar.read_named(o.get_nameview(), o.obj);
+                } else
+                    logic<Tcontained>::s_serializable(archive_context, o.obj);
             }
-
-            // ar | nv("content", content * yaml_format(yaml::eol_keep))
-            // logic<Tbase>::s_struct(ar, *o.p, p);
         } else if constexpr(is_base<Tb>::value) {
             using Tbase = typename Tb::base_type;
-            prefix p = logic<Tbase>::s_prefix(ar);
-            logic<Tbase>::s_struct(ar, *o.p, p);
+            prefix current = type_util<Tb>::extract_prefix();
+            ar.begin_object(current, nullptr);
+            logic<Tbase>::s_struct(ar, *o.p, current);
+            ar.end_object();
         } else if constexpr(is_vu<Tb>::value) {
             using Ts = typename Tb::serialize_type;
             logic<Ts>::s_vu(ar, *o.q);
@@ -405,10 +413,13 @@ struct logic
             constexpr size_t new_mode = combine_mode(Mode, o);
             logic<Tv, new_mode>::s_serializable(archive_context, o.value);
 #elif 1
-            auto& state = ar.current_scope();
-            util::map([&state] (auto const& op) { op(state); }, o);
-            logic<Tv>::s_serializable(archive_context, o.value);
-            ar.restore_scope(state);
+            if constexpr (has_supported_mods<Ar>::value) {
+                auto& state = ar.current_scope();
+                apply_serialization_mods<archive_t>(state, o);
+                // util::map([&state] (auto const& op) { op(state); }, o);
+                logic<Tv>::s_serializable(archive_context, o.value);
+                ar.restore_scope(state);
+            }
 #endif
 
             // archive_t::state s {};
@@ -426,17 +437,27 @@ struct logic
             // ar | array(a, 100) * yaml_base64(64)
             // ar | array(a, 100) * yaml_base64(32) * json_string() * bin_vu()
 
-        } else if constexpr(std::is_arithmetic<Tb>::value || std::is_enum<Tb>::value || type_util<Tb>::template is_primitive_v<archive_t>) {
+        } else if constexpr (std::is_enum<Tb>::value) {
+            using Tu = std::underlying_type_t<Tb>;
+            logic<Tu>::s_primitive(ar, reinterpret_cast<Tu&>(o));
+        } else if constexpr(std::is_arithmetic<Tb>::value || type_util<Tb>::template is_primitive_v<archive_t>) {
             s_primitive(ar, o);
         } else if constexpr(std::is_class<Tb>::value || std::is_union<Tb>::value) {
-            ar.begin_object();
-            if constexpr (type_util<Tb>::store_prefix()) {
-                prefix p = s_prefix(ar);
-                s_struct(ar, o, p);
-            } else {
-                prefix code = type_util<Tb>::extract_prefix();
-                s_struct(ar, o, code);
-            }
+
+            // read/write, store/not-store
+            prefix code = type_util<Tb>::extract_prefix();
+            prefix current = code;
+            ar.begin_object(current, nullptr);
+            s_struct(ar, o, current);
+
+            // ar.begin_object();
+            // if constexpr (type_util<Tb>::store_prefix()) {
+            //     prefix p = s_prefix(ar);
+            //     s_struct(ar, o, p);
+            // } else {
+            //     prefix code = type_util<Tb>::extract_prefix();
+            //     s_struct(ar, o, code);
+            // }
             ar.end_object();
         }
     }
@@ -450,17 +471,17 @@ struct logic
         }
     }
 
-    template<class Ar>
-    static prefix s_prefix(Ar& ar) {
-        if constexpr (Ar::is_reading) {
-            return ar.read_prefix(nullptr);
-        } else {
-            prefix p = type_util<Tb>::extract_prefix();
-            assert (p.store());
-            ar.write_prefix(p, nullptr);
-            return p;
-        }
-    }
+    // template<class Ar>
+    // static prefix s_prefix(Ar& ar) {
+    //     if constexpr (Ar::is_reading) {
+    //         return ar.read_prefix(nullptr);
+    //     } else {
+    //         prefix p = type_util<Tb>::extract_prefix();
+    //         assert (p.store());
+    //         ar.write_prefix(p, nullptr);
+    //         return p;
+    //     }
+    // }
 
     template<class Ar>
     static void s_struct(Ar& ar, Tb& o, prefix p) {
@@ -468,9 +489,10 @@ struct logic
     }
 
     template<class Ar>
-    static void s_struct_array(Ar& ar, Tb* o, size_t size, prefix p) {
+    static void s_struct_array(Ar& ar, Tb* o, size_t size) {
         for (size_t i=0; i<size; ++i) {
-            ar.begin_object();
+            prefix p = type_util<Tb>::extract_prefix();
+            ar.begin_object(p, nullptr);
             logic<Tb>::s_struct(ar, o[i], p);
             ar.end_object();
         }

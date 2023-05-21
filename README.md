@@ -39,6 +39,9 @@ int main()
     y2.init(200);
     ar | y1 | y2;
 
+    ar  | NV("y1", y1)
+        | NV("y2", y1);
+
     using namespace std;
     std::fstream fs("data", ios::out|ios::binary|ios::trunc);
     fs.write(ar.data.data(), ar.data.size());

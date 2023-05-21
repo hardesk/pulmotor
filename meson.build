@@ -51,7 +51,7 @@ pulmotor_dep = declare_dependency(
 
 # TESTS
 # pulmotor_tests = [ 'archive.tests', 'basic.tests', 'serialize.tests', 'stream.tests', 'yaml.tests' ]
-pulmotor_tests = [ 'archive.tests', 'basic.tests', 'serialize.tests', 'stream.tests', 'yaml.tests' ]
+pulmotor_tests = [ 'archive.tests', 'basic.tests', 'serialize.tests', 'serialize.std.tests', 'stream.tests', 'yaml.tests' ]
 foreach t : pulmotor_tests
   test_cpp_name = 'tests' / (t + '.cpp')
   test_exe = executable(t, test_cpp_name,

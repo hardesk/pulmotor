@@ -28,37 +28,37 @@ void serialize(Ar& ar, std::basic_string<Ch, Tr, Al>& s, unsigned version)
 {
     size_t sz = s.size();
     ar | array_size(sz);
-    if (Ar::is_reading)
+    if constexpr (Ar::is_reading)
         s.resize(sz);
     ar | array_data(s.data(), sz);
 }
 
-template<class Ar, class Ch, class Tr, class Al>
-void serialize_save(Ar& ar, std::basic_string<Ch, Tr, Al>& s, unsigned version)
-{
-    #if 1
-    ar | array(s.data(), s.size());
-    #else
-    size_t sz = s.size();
-    ar | array_size(sz);
-    if (sz) ar | array_data(s.data(), sz);
-    #endif
-}
+// template<class Ar, class Ch, class Tr, class Al>
+// void serialize_save(Ar& ar, std::basic_string<Ch, Tr, Al>& s, unsigned version)
+// {
+//     #if 1
+//     ar | array(s.data(), s.size());
+//     #else
+//     size_t sz = s.size();
+//     ar | array_size(sz);
+//     if (sz) ar | array_data(s.data(), sz);
+//     #endif
+// }
 
-template<class Ar, class Ch, class Tr, class Al>
-void serialize_load(Ar& ar, std::basic_string<Ch, Tr, Al>& s, unsigned version)
-{
-    size_t sz;
-    ar | sz;
+// template<class Ar, class Ch, class Tr, class Al>
+// void serialize_load(Ar& ar, std::basic_string<Ch, Tr, Al>& s, unsigned version)
+// {
+//     size_t sz;
+//     ar | pulsz;
 
-    if (sz) {
-        s.resize(sz);
-        ar | array(s.data(), sz);
-    } else {
-        s.clear();
-        // s.shrink_to_fit();
-    }
-}
+//     if (sz) {
+//         s.resize(sz);
+//         ar | array(s.data(), sz);
+//     } else {
+//         s.clear();
+//         // s.shrink_to_fit();
+//     }
+// }
 
 }
 

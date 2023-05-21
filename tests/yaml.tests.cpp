@@ -28,6 +28,82 @@ TEST_CASE("yaml writer")
 
     using namespace std::literals;
 
+    SUBCASE("empty")
+    {
+        SUBCASE("empty string")
+        {
+            ws.value(""sv);
+            CHECK(ss.str() == "");
+        }
+
+        SUBCASE("empty sequence")
+        {
+            ws.sequence();
+            ws.end_collection();
+            CHECK(ss.str() == "[]");
+        }
+
+        SUBCASE("empty mapping")
+        {
+            ws.mapping();
+            ws.end_collection();
+            CHECK(ss.str() == "{}");
+        }
+
+        SUBCASE("seq test")
+        {
+            ws.sequence();
+                ws.sequence();
+                    ws.value("aaa");
+                    ws.sequence();
+                        ws.sequence();
+                        ws.end_collection();
+                        ws.value("bbb");
+                    ws.end_collection();
+                ws.end_collection();
+
+                ws.value("aaa");
+                ws.value("bbb");
+                ws.sequence();
+                    ws.value("XXX");
+                    ws.value("YYY");
+                ws.end_collection();
+                ws.value("ccc");
+            ws.end_collection();
+            CHECK(ss.str() ==
+                "-\n - aaa\n  - []\n  - bbb\n"
+                "- aaa\n- bbb\n - XXX\n - YYY\n- ccc\n");
+        }
+
+
+        SUBCASE("empty sequence collection")
+        {
+            ws.sequence();
+                ws.sequence();
+                ws.end_collection();
+                ws.value("moo");
+                ws.sequence();
+                ws.end_collection();
+            ws.end_collection();
+            CHECK(ss.str() == "- []\n- moo\n- []");
+        }
+
+        SUBCASE("empty sequence collection some non empty")
+        {
+            ws.sequence();
+                ws.sequence();
+                ws.end_collection();
+                ws.value("one"sv);
+                ws.sequence();
+                ws.end_collection();
+                ws.value("two"sv);
+                ws.mapping();
+                ws.end_collection();
+            ws.end_collection();
+            CHECK(ss.str() == "- []\n- one\n- []\n- two\n- {}");
+        }
+    }
+
     SUBCASE("value")
     {
         SUBCASE("scalar")
@@ -92,19 +168,19 @@ TEST_CASE("yaml writer")
         SUBCASE("array flow")
         {
             do_collection(ws, yaml::fmt_flags::flow);
-            CHECK(ss.str() == "[ 1, 2 ]");
+            CHECK(ss.str() == "[ 1, 2 ]\n");
         }
 
         SUBCASE("array flow single quoted")
         {
             do_collection(ws, yaml::fmt_flags::flow, yaml::fmt_flags::single_quoted);
-            CHECK(ss.str() == "[ '1', '2' ]");
+            CHECK(ss.str() == "[ '1', '2' ]\n");
         }
 
         SUBCASE("array flow duoble quoted")
         {
             do_collection(ws, yaml::fmt_flags::flow, yaml::fmt_flags::double_quoted);
-            CHECK(ss.str() == "[ \"1\", \"2\" ]");
+            CHECK(ss.str() == "[ \"1\", \"2\" ]\n");
         }
     }
 
@@ -141,7 +217,7 @@ TEST_CASE("yaml writer")
         ws.tag("!!str"sv);
         ws.value("100"sv);
         ws.end_collection();
-        CHECK(ss.str() == "a: &xx !!str 100\n");
+        CHECK(ss.str() == "a: &xx !!str 100");
     }
 
     SUBCASE("properties flow")
@@ -401,7 +477,7 @@ TEST_CASE("yaml archive write")
 
     SUBCASE("nv") {
         int a = 1;
-        oK.begin_object();
+        oK.begin_object(prefix{}, nullptr);
         oK | nv("a", a) | nv("c", a);
         oK.end_object();
 
@@ -410,7 +486,7 @@ TEST_CASE("yaml archive write")
 
     SUBCASE("nv struct") {
         X x{100, 200};
-        oK.begin_object();
+        oK.begin_object(prefix{}, nullptr);
         oK | nv("x", x);
         oK.end_object();
         CHECK(ss.str() == "x:\n  z: 100\n  w: 200\n");

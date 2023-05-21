@@ -36,7 +36,9 @@ struct short_type_name { };
 #define PULMOTOR_BN(x) template<> struct short_type_name<x> { static char const* name; };
 
 PULMOTOR_BN(char)
+PULMOTOR_BN(bool)
 PULMOTOR_BN(unsigned char)
+PULMOTOR_BN(signed char)
 PULMOTOR_BN(short)
 PULMOTOR_BN(unsigned short)
 PULMOTOR_BN(int)
@@ -495,6 +497,7 @@ PULMOTOR_ATTR_DLL void throw_fmt_error(char const* filename, text_location loc, 
 PULMOTOR_ATTR_DLL void throw_system_error(std::error_code const& ec, char const* msg, char const* filename, text_location loc);
 #define PULMOTOR_THROW_SYSTEM_ERROR(ec, msg) throw_system_error(ec, msg, __FILE__, text_location { __LINE__, 0 } )
 PULMOTOR_ATTR_DLL std::string ssprintf(char const* msg, ...);
+PULMOTOR_ATTR_DLL std::string ssprintf(char const* msg, va_list va);
 
 namespace lit
 {

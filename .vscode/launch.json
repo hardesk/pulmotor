@@ -9,6 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/b_debug/yaml.tests",
+            // "program": "${workspaceFolder}/b_debug/serialize.std.tests",
             "targetArchitecture": "arm64",
             "args": ["-nc"],
             "stopAtEntry": false,

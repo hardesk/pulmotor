@@ -6,155 +6,13 @@
 #include <pulmotor/binary_archive.hpp>
 #include <span>
 
-std::vector<char> operator"" _v(char const* s, size_t l) { return std::vector<char>(s, s + l); }
+#include "common_formatter.hpp"
+#include "common_types.hpp"
+#include "common_archive.hpp"
 
-namespace std {
-
-template<class T>
-std::string toStringValue(T const& a)
-{
-    std::string s;
-    if constexpr(std::is_same<T, std::string>::value) {
-        return a;
-    } else if constexpr(std::is_same<T, char>::value) {
-        s += '\'';
-        if (a < 32) s += '\\' + std::to_string((int)a); else s += a;
-        s += '\'';
-    } else if constexpr(std::is_pointer<T>::value && std::is_arithmetic<typename std::remove_pointer<T>::type>::value) {
-        s += '&';
-        s += std::to_string(*a);
-    } else if constexpr(std::is_arithmetic<T>::value) {
-        s += std::to_string(a);
-    } else {
-        if constexpr(std::is_pointer<T>::value) {
-            s += '&';
-            s += toString(*a).c_str();
-        } else
-            s += toString(a).c_str();
-        //s += '?';
-    }
-    return s;
-}
-
-template<class T, class A>
-doctest::String toString(std::vector<T, A> const& v) {
-    std::string s;
-    s.reserve(v.size() * sizeof(T)*7/2 + 5);
-    for(size_t i=0; i<v.size(); ++i) {
-        if (v.size() > 32 && (i>=24 && i<v.size()-4)) {
-            if (i == 24)
-                s += ", ...";
-        } else {
-            s += toStringValue(v[i]);
-            if (i != v.size() - 1)
-                s += ", ";
-        }
-    }
-    return s.c_str();
-}
-
-template<class K, class T, class C, class A>
-doctest::String toString(std::map<K, T, C, A> const& m) {
-    std::string s;
-    s.reserve(m.size() * sizeof(T)*7/2 * sizeof(K)*7/2 + 5);
-    size_t i = 0;
-    for(auto it = m.begin(); it != m.end(); ++it, ++i) {
-        if (m.size() > 32 && (i>=24 && i<m.size()-4)) {
-            if (i == 24)
-                s += ", ...";
-        } else {
-            s += '(' + toStringValue(it->first) + ':' + toStringValue(it->second) + ')';
-            if (i != m.size() - 1)
-                s += ", ";
-        }
-    }
-    return s.c_str();
-}
-
-} // std
-
-template<class T>
-struct basic_tester {
-    void operator()(T value) {
-        std::stringstream ss;
-        pulmotor::sink_ostream so(ss);
-        pulmotor::archive_sink oar(so);
-
-        // write
-        oar | value;
-
-        char buffer[sizeof(value)];
-        memcpy(buffer, ss.str().data(), ss.str().size());
-        CHECK(value == *reinterpret_cast<decltype(value)*>(buffer));
-
-        // read back and compare
-        pulmotor::source_buffer in(buffer, sizeof buffer);
-        pulmotor::archive_whole iar(in);
-        T readValue = 0;
-        iar | readValue;
-        CHECK( readValue == value );
-    }
-};
 
 namespace test_types
 {
-    struct A {
-        int x;
-
-        bool operator==(A const& a) const = default;
-        template<class Ar> void serialize(Ar& ar, unsigned version) { ar | x; }
-        friend std::ostream& operator<<(std::ostream& os, A const& a) { os << '{' << a.x << '}'; return os; }
-    };
-
-    // same as as, but marked to be serialized with no prefix (below)
-    struct An {
-        int x;
-
-        bool operator==(An const& a) const = default;
-        template<class Ar> void serialize(Ar& ar, unsigned version) { ar | x; }
-        friend std::ostream& operator<<(std::ostream& os, An const& a) { os << '{' << a.x << '}'; return os; }
-    };
-
-
-    struct B {
-        A a;
-        int y = 2; // appeared in v2
-
-        bool operator==(B const&) const = default;
-        template<class Ar> void serialize(Ar& ar, unsigned version) {
-            ar | a;
-            if (version >= 2) ar | y;
-        }
-        friend std::ostream& operator<<(std::ostream& os, B const& b) { os << '{' << b.a << ", " << b.y << '}'; return os; }
-    };
-
-    struct C {
-        int x[2];
-
-        bool operator==(C const&) const = default;
-        template<class Ar> void serialize(Ar& ar, unsigned version) { ar | x; }
-    };
-
-    struct P {
-        A* a;
-        int y;
-        int* z;
-
-        P(P const&) = delete;
-        P& operator=(P const&) = delete;
-
-        P(int xx, int yy, int zz) : a(new A{xx}), y(yy), z(new int(zz)) {}
-        ~P() { delete a; delete z; }
-
-        bool operator==(P const&) const = default;
-        template<class Ar> void serialize(Ar& ar, unsigned version) { ar | a | y | z; }
-    };
-
-    struct N {
-        A a;
-        template<class Ar> void serialize(Ar& ar, unsigned version) { ar | a; }
-    };
-
     struct DB { int x; };
     template<class Ar> void serialize(Ar& ar, DB& o) { ar | o.x; }
 
@@ -170,7 +28,7 @@ namespace test_types
 } // test_types
 
 PULMOTOR_DECL_VERSION(test_types::An, pulmotor::no_prefix);
-PULMOTOR_DECL_VERSION(test_types::B, 2);
+PULMOTOR_DECL_VERSION(test_types::A2, 2);
 
 namespace detect_serialize
 {
@@ -281,45 +139,17 @@ TEST_CASE("detect pair")
     CHECK(pulmotor::access::detect<Ar>::has_serialize<std::pair<int, int> >::value == true);
 }
 
-TEST_CASE("value serialize")
+TEST_CASE("serialize binary specific")
 {
     using namespace pulmotor;
+    using namespace test_types;
 
-    SUBCASE("arithmetic")
-    {
-        basic_tester<bool>()(false);
-        basic_tester<bool>()(true);
-        basic_tester<char>()('a');
-        basic_tester<signed char>()(-1);
-        basic_tester<unsigned char>()(250);
-        basic_tester<short>()(16384);
-        basic_tester<short>()(-1);
-        basic_tester<unsigned short>()(65535);
-        basic_tester<int>()(100000);
-        basic_tester<int>()(-100000);
-        basic_tester<unsigned>()(3002001000);
-        basic_tester<long>()(3002001000);
-        basic_tester<unsigned long>()(3002001000);
-        basic_tester<long long>()(3002001000);
-        basic_tester<unsigned long long>()(3002001000);
-
-        basic_tester<u8>()(0xff);
-        basic_tester<s8>()(0x7f);
-        basic_tester<s8>()(-0x80);
-        basic_tester<u16>()(0xffff);
-        basic_tester<s16>()(0x7fff);
-        basic_tester<s16>()(-0x8000);
-        basic_tester<u32>()(0xffff'ffffU);
-        basic_tester<s32>()(0x7fff'ffff);
-        basic_tester<s32>()(-0x8000'0000);
-        basic_tester<u64>()(0xffff'ffff'ffff'ffff);
-        basic_tester<s64>()(0x7fff'ffff'ffff'ffff);
-        basic_tester<s64>()(-0x8000'0000'0000'0000);
-    }
+    BinaryArchiveTest a;
 
     SUBCASE("alignment")
     {
         using namespace std::string_literals;
+        using namespace pulmotor;
 
         u8 a8{0x38};
         u16 a16{0x3631};
@@ -335,11 +165,10 @@ TEST_CASE("value serialize")
         sink_vector out; archive_sink ar(out);
 
         SUBCASE("8") {
-            ar | a8 | a16 | a32 | a64;
-            CHECK(pulmotor::util::hexv(out.data()) == "8\0" "16323264646464"_hexs);
+            a.o | a8 | a16 | a32 | a64;
+            CHECK(pulmotor::util::hexv(a.data()) == "8\0" "16323264646464"_hexs);
 
-            // archive_vector_in i(out.data());
-            archive_memory i(std::span<const char>(out.data()));
+            auto i = a.make_reader();
             i | x8 | x16 | x32 | x64;
 
             CHECK(a8==x8);
@@ -349,10 +178,10 @@ TEST_CASE("value serialize")
         }
 
         SUBCASE("16") {
-            ar | a16 | a32 | a64;
-            CHECK(pulmotor::util::hexv(out.data()) == "16\0\0" "323264646464"_hexs);
+            a.o | a16 | a32 | a64;
+            CHECK(pulmotor::util::hexv(a.data()) == "16\0\0" "323264646464"_hexs);
 
-            archive_memory i(std::span<char const>(out.data()));
+            auto i = a.make_reader();
             i | x16 | x32 | x64;
             CHECK(a16==x16);
             CHECK(a32==x32);
@@ -360,18 +189,20 @@ TEST_CASE("value serialize")
         }
 
         SUBCASE("32") {
-            ar | a32 | a64;
-            CHECK(pulmotor::util::hexv(out.data()) == "3232\0\0\0\0""64646464"_hexs);
-            archive_memory i(std::span<char const>(out.data()));
+            a.o | a32 | a64;
+            CHECK(pulmotor::util::hexv(a.data()) == "3232\0\0\0\0""64646464"_hexs);
+
+            auto i = a.make_reader();
             i | x32 | x64;
             CHECK(a32==x32);
             CHECK(a64==x64);
         }
 
         SUBCASE("16\08") {
-            ar | a16 | a8 | a32 | a64;
-            CHECK(pulmotor::util::hexv(out.data()) == "168\0""323264646464"_hexs);
-            archive_memory i(std::span<char const>(out.data()));
+            a.o | a16 | a8 | a32 | a64;
+            CHECK(pulmotor::util::hexv(a.data()) == "168\0""323264646464"_hexs);
+
+            auto i = a.make_reader();
             CHECK(a16==x16);
             CHECK(a8==x8);
             CHECK(a32==x32);
@@ -379,9 +210,10 @@ TEST_CASE("value serialize")
         }
 
         SUBCASE("16\032\08") {
-            ar | a16 | a32 | a8 | a64;
-            CHECK(pulmotor::util::hexv(out.data()) == "16\0\0""32328\0\0\0\0\0\0\0""64646464"_hexs);
-            archive_memory i(std::span<char const>(out.data()));
+            a.o | a16 | a32 | a8 | a64;
+            CHECK(pulmotor::util::hexv(a.data()) == "16\0\0""32328\0\0\0\0\0\0\0""64646464"_hexs);
+
+            auto i = a.make_reader();
             i | x16 | x32 | x8 | x64;
             CHECK(a16==x16);
             CHECK(a32==x32);
@@ -390,63 +222,137 @@ TEST_CASE("value serialize")
         }
     }
 
-    using namespace test_types;
-    sink_vector out; archive_sink ar(out);
-    SUBCASE("struct")
-    {
-        A a{1234};
-        ar | a;
-
-        CHECK(pulmotor::util::hexv(out.data()) == "\1\0\0\0\xd2\4\0\0"_hexs);
-
-        archive_memory i(std::span<char const>(out.data()));
-        A x { 0 };
-        i | x;
-
-        CHECK( a == x );
-    }
-
-    SUBCASE("struct no prefix")
-    {
-        An a{1234};
-        ar | a;
-
-        CHECK(pulmotor::util::hexv(out.data()) == "\xd2\4\0\0"_hexs);
-
-        archive_memory i(std::span<char const>(out.data()));
-        An x { 0 };
-        i | x;
-
-        CHECK( a == x );
-    }
-
     SUBCASE("struct of older version")
     {
         std::vector<char> data1 = "\1\0\0\0\1\0\0\0\xd2\4\0\0"_v;
         std::vector<char> data3 = "\3\0\0\0\1\0\0\0\xd2\4\0\0\1\1\0\0"_v;
 
         archive_memory i1 = std::span<char const>(data1);
-        B b1;
-        i1 | b1;
+        A2 x;
+        i1 | x;
 
-        CHECK(b1.y == 2);
+        CHECK(x.y == 2);
 
         archive_memory i3 = std::span<char const>(data3);
-        B b3;
-        i3 | b3;
+        A2 x1;
+        i3 | x1;
 
-        CHECK(b3.y == 257);
+        CHECK(x1.y == 257);
+    }
+
+}
+
+// template<class T, class ArchPair = YamlArchiveTest>
+// struct basic_tester {
+//     void operator() (T value) {
+//         ArchPair a;
+//         a.o | value;
+
+//         // check binary it's the same written
+//         if constexpr (std::is_same<decltype(a.make_reader()), pulmotor::archive_memory>::value) {
+//             char buffer[sizeof(value)];
+//             memcpy(buffer, a.data().data(), a.data().size());
+//             CHECK(value == *reinterpret_cast<decltype(value)*>(buffer));
+//         }
+
+//         T v1;
+//         auto i = a.make_reader();
+//         i | v1;
+
+//         CHECK( v1 == value );
+//     }
+// };
+
+TEST_CASE_TEMPLATE("value stream serialize", ArchPair, YamlArchiveTest, BinaryArchiveTest)
+{
+    using namespace pulmotor;
+
+    auto basic_test = []<class T>(T value) {
+        ArchPair ap;
+        ap.o | value;
+
+        // check binary it's the same written
+        if constexpr (std::is_same<decltype(ap.make_reader()), pulmotor::archive_memory>::value) {
+            char buffer[sizeof(value)];
+            memcpy(buffer, ap.data().data(), ap.data().size());
+            CHECK(value == *reinterpret_cast<decltype(value)*>(buffer));
+        }
+
+        T v1;
+        auto i = ap.make_reader();
+        i | v1;
+
+        CHECK( v1 == value );
+
+        // std::cout << typeid(value).name() << std::endl;
+    };
+
+    SUBCASE("fundamental types")
+    {
+        basic_test((bool)false);
+        basic_test((bool)true);
+        basic_test((char)'a');
+        basic_test((signed char)1);
+        basic_test((unsigned char)250);
+        basic_test((short)16384);
+        basic_test((short)1);
+        basic_test((unsigned short)65535);
+        basic_test((int)100000);
+        basic_test((int)100000);
+        basic_test((unsigned)3002001000);
+        basic_test((long)3002001000);
+        basic_test((unsigned long)3002001000);
+        basic_test((long long)3002001000);
+        basic_test((unsigned long long)3002001000);
+
+        basic_test((u8)0xff);
+        basic_test((s8)0x7f);
+        basic_test((s8)0x80);
+        basic_test((u16)0xffff);
+        basic_test((s16)0x7fff);
+        basic_test((s16)0x8000);
+        basic_test((u32)0xffff'ffffU);
+        basic_test((s32)0x7fff'ffff);
+        basic_test((s32)0x8000'0000);
+        basic_test((u64)0xffff'ffff'ffff'ffff);
+        basic_test((s64)0x7fff'ffff'ffff'ffff);
+        basic_test((s64)0x8000'0000'0000'0000);
+    }
+}
+
+// This supports only keyed serialization
+TEST_CASE_TEMPLATE("named value serialize", ArchPair, YamlKeyedArchiveTest, YamlArchiveTest, BinaryArchiveTest)
+{
+    using namespace pulmotor;
+    using namespace test_types;
+
+    ArchPair ap;
+    constexpr bool is_binary = std::is_same<decltype(ap.make_reader()), pulmotor::archive_memory>::value;
+    SUBCASE("struct")
+    {
+        Ak s{1234};
+        ap.o | s;
+
+        if constexpr (is_binary)
+            CHECK(pulmotor::util::hexv(ap.data()) == "\1\0\0\0\xd2\4\0\0"_hexs);
+
+        auto i = ap.make_reader();
+        Ak x { 0 };
+        i | x;
+
+        CHECK( s == x );
     }
 
     SUBCASE("primitive array")
     {
         int a[2] = {1, 120};
-        ar | array(a, 2);
+        ap.o | array(a, 2);
 
         // for natural align policy
-        CHECK(pulmotor::util::hexv(out.data()) == "\2\0\0\0\1\0\0\0\x78\0\0\0"_hexs);
+        if constexpr (is_binary)
+            CHECK(pulmotor::util::hexv(ap.data()) == "\2\0\0\0\1\0\0\0\x78\0\0\0"_hexs);
 
-        archive_memory i1(std::span<char const>(out.data()));
+        auto i1 = ap.make_reader();
         int x1[2] = { 0, 0 };
         size_t s = 2;
         i1 | array_size(s);
@@ -454,7 +360,7 @@ TEST_CASE("value serialize")
         CHECK( a[0] == x1[0] );
         CHECK( a[1] == x1[1] );
 
-        archive_memory i2(std::span<char const>(out.data()));
+        auto i2 = ap.make_reader();
         int x2[2] = { 0, 0 };
         i2 | array_size(s);
         i2 | x2[0] | x2[1];
@@ -466,93 +372,125 @@ TEST_CASE("value serialize")
     SUBCASE("primitive array fixed size")
     {
         int a[2] = {1, 120};
-        ar | a;
+        ap.o | a;
 
-        CHECK(pulmotor::util::hexv(out.data()) == "\2\0\0\0\1\0\0\0\x78\0\0\0"_hexs);
+        if constexpr (is_binary)
+            CHECK(pulmotor::util::hexv(ap.data()) == "\2\0\0\0\1\0\0\0\x78\0\0\0"_hexs);
 
-        archive_memory i(std::span<char const>(out.data()));
+        auto i = ap.make_reader();
         int x[2] = { 0, 0 };
         i | x;
         CHECK( a[0] == x[0] );
         CHECK( a[1] == x[1] );
+    }
+}
+
+TEST_CASE_TEMPLATE("value serialize", ArchPair, YamlArchiveTest, BinaryArchiveTest)
+{
+    using namespace pulmotor;
+    using namespace test_types;
+
+    ArchPair ap;
+
+    constexpr bool is_binary = std::is_same<decltype(ap.make_reader()), pulmotor::archive_memory>::value;
+
+    SUBCASE("struct no prefix")
+    {
+        An s{1234};
+        ap.o | s;
+
+        if constexpr (is_binary)
+            CHECK(pulmotor::util::hexv(ap.data()) == "\xd2\4\0\0"_hexs);
+
+        auto i = ap.make_reader();
+        An x { 0 };
+        i | x;
+
+        CHECK( s == x );
     }
 
     SUBCASE("array of struct")
     {
         A a[2] = {{1234}, {5678}};
         size_t s = 2;
-        ar | array_size(s);
-        ar | pulmotor::array_data(a, 2);
+        ap.o | array_size(s);
+        ap.o | pulmotor::array_data(a, 2);
 
         // for natural align policy
-        CHECK(pulmotor::util::hexv(out.data()) == "\2\0\1\0\0\0\0\0\xd2\4\0\0\x2e\x16\0\0"_hexs);
+        // if constexpr (is_binary)
+        //     CHECK(pulmotor::util::hexv(ap.data()) == "\2\0\1\0\0\0\0\0\xd2\4\0\0\x2e\x16\0\0"_hexs);
 
-        archive_memory i(std::span<char const>(out.data()));
+        auto i = ap.make_reader();
         A x[2];
         i | array_size(s);
         i | pulmotor::array_data(x, 2);
-        ar.end_array();
         CHECK( a[0] == x[0] );
         CHECK( a[1] == x[1] );
     }
 
     SUBCASE("array of struct fixed size")
     {
-        A a[2] = {{1234}, {5678}};
-        ar | a;
+        A a1[2] = {{1234}, {5678}};
+        ap.o | a1;
 
-        CHECK(pulmotor::util::hexv(out.data()) == "\2\0\1\0\0\0\0\0\xd2\4\0\0\x2e\x16\0\0"_hexs);
+        // if constexpr (is_binary)
+        //     CHECK(pulmotor::util::hexv(ap.data()) == "\2\0\1\0\0\0\0\0\xd2\4\0\0\x2e\x16\0\0"_hexs);
 
-        archive_memory i(std::span<char const>(out.data()));
-        A x[2];
-        i | x;
-        CHECK( a[0] == x[0] );
-        CHECK( a[1] == x[1] );
+        auto i1 = ap.make_reader();
+        A x1[2];
+        i1 | x1;
+        CHECK( a1[0] == x1[0] );
+        CHECK( a1[1] == x1[1] );
     }
 
     SUBCASE("array of array")
     {
-        A a[2][3] = { {{1234}, {5678}, {9112}}, {{1234}, {5678}, {9556}} };
-        ar | a;
+        A a2[2][3] = { {{1234}, {5678}, {9112}}, {{1234}, {5678}, {9556}} };
+        ap.o | a2;
 
-        archive_memory i(std::span<char const>(out.data()));
-        A x[2][3];
-        i | x;
-        CHECK( a[0][0] == x[0][0] );
-        CHECK( a[0][1] == x[0][1] );
-        CHECK( a[0][2] == x[0][2] );
-        CHECK( a[1][0] == x[1][0] );
-        CHECK( a[1][1] == x[1][1] );
-        CHECK( a[1][2] == x[1][2] );
+        auto i2 = ap.make_reader();
+        A x2[2][3];
+        i2 | x2;
+        CHECK( a2[0][0] == x2[0][0] );
+        CHECK( a2[0][1] == x2[0][1] );
+        CHECK( a2[0][2] == x2[0][2] );
+        CHECK( a2[1][0] == x2[1][0] );
+        CHECK( a2[1][1] == x2[1][1] );
+        CHECK( a2[1][2] == x2[1][2] );
     }
 
-    SUBCASE("nested struct")
+    SUBCASE("nested struct 0")
     {
         N n { {1233} };
-        ar | n;
+        ap.o | n;
 
-        B b{{1111}, 2222};
-        ar | b;
-
-        archive_memory i(std::span<char const>(out.data()));
+        auto i = ap.make_reader();
         N n1;
         i | n1;
         CHECK( n1.a.x == n.a.x );
-
-        B x;
-        i | x;
-        CHECK( b.a == x.a );
-        CHECK( b.y == x.y );
     }
+
+    SUBCASE("nested struct 1")
+    {
+        A2 x{{1111}, 2222};
+        ap.o | x;
+
+        auto i = ap.make_reader();
+        A2 x1;
+        i | x1;
+        CHECK( x.a == x1.a );
+        CHECK( x.y == x1.y );
+    }
+
 
     SUBCASE("base")
     {
-        auto s = [&ar, &out](auto& a)
+        auto s = [&ap]<class T>(T& a)
         {
-            ar | a;
+            ap.o | a;
 
-            archive_memory i(std::span<char const>(out.data()));
-            std::remove_reference_t<decltype(a)> x;
+            auto i = ap.make_reader();
+            T x;
             i | x;
             CHECK(x.x == a.x);
             CHECK(x.y == a.y);
@@ -576,55 +514,77 @@ TEST_CASE("value serialize")
         }
     }
 
+
     SUBCASE("variable unsigned quantity")
     {
         size_t a=10, b=255, c=32768, d=4000000;
         SUBCASE("u8")
         {
+            auto check = [&ap](size_t v, std::initializer_list<u8> _l) {
+                ap.o | vu<u8>(v);
+                u8 const* l = _l.begin();
+                if constexpr (is_binary) {
+                    if (_l.size() > 0) CHECK((u8)ap.data()[0] == l[0]);
+                    if (_l.size() > 1) CHECK((u8)ap.data()[1] == l[1]);
+                    if (_l.size() > 2) CHECK((u8)ap.data()[2] == l[2]);
+                    if (_l.size() > 3) CHECK((u8)ap.data()[3] == l[3]);
+                }
+
+                size_t x = 0;
+                auto i = ap.make_reader();
+                i | vu<u8>(x);
+                CHECK(v == x);
+            };
             // a=32768; while [[ $a -ne 0 ]]; do if [[ $a -gt 127 ]]; then echo $((a & 0x7f|0x80)); else echo $((a & 0x7f)); fi; a=$((a>>7)); done;
-            ar | vu<u8>(a);
-            CHECK(out.data()[0] == a);
-
-            ar | vu<u8>(b);
-            CHECK(out.data()[1] == char(0xff));
-            CHECK(out.data()[2] == char(0x01));
-
-            ar | vu<u8>(c);
-            CHECK(out.data()[3] == char(0x80));
-            CHECK(out.data()[4] == char(0x80));
-            CHECK(out.data()[5] == char(0x02));
-
-            ar | vu<u8>(d);
-            CHECK(out.data()[6] == char(0x80));
-            CHECK(out.data()[7] == char(0x92));
-            CHECK(out.data()[8] == char(0xf4));
-            CHECK(out.data()[9] == char(0x01));
+            SUBCASE("1") {
+                check(a, {10});
+            }
+            SUBCASE("2") {
+                check(b, {0xff, 0x01});
+            }
+            SUBCASE("3") {
+                check(c, {0x80, 0x80, 0x02});
+            }
+            SUBCASE("4") {
+                check(d, {0x80, 0x92, 0xf4, 0x01 });
+            }
         }
 
         SUBCASE("u16")
         {
+            auto check = [&ap](size_t v, std::initializer_list<u8> _l) {
+                ap.o | vu<u16>(v);
+                u8 const* l = _l.begin();
+                if constexpr (is_binary) {
+                    if (_l.size() > 0) CHECK((u8)ap.data()[0] == l[0]);
+                    if (_l.size() > 1) CHECK((u8)ap.data()[1] == l[1]);
+                    if (_l.size() > 2) CHECK((u8)ap.data()[2] == l[2]);
+                    if (_l.size() > 3) CHECK((u8)ap.data()[3] == l[3]);
+                }
+
+                size_t x = 0;
+                auto i = ap.make_reader();
+                i | vu<u16>(x);
+                CHECK(v == x);
+            };
+
             // a=32768; while [[ $a -ne 0 ]]; do if [[ $a -gt 32767 ]]; then echo $((a & 0x7fff|0x8000)); else echo $((a & 0x7fff)); fi; a=$((a>>15)); done;
-            ar | vu<u16>(b);
-            CHECK(out.data()[0] == char(0xff));
-            CHECK(out.data()[1] == char(0x00));
-
-            ar | vu<u16>(c);
-            CHECK(out.data()[2] == char(0x00));
-            CHECK(out.data()[3] == char(0x80));
-            CHECK(out.data()[4] == char(0x01));
-            CHECK(out.data()[5] == char(0x00));
-
-            ar | vu<u16>(d);
-            CHECK(out.data()[6] == char(0x00));
-            CHECK(out.data()[7] == char(0x89));
-            CHECK(out.data()[8] == char(0x7a));
-            CHECK(out.data()[9] == char(0x00));
+            SUBCASE("1") {
+                check(a, { 10, 0 });
+            }
+            SUBCASE("2") {
+                check(b, { 0xff, 0x00 });
+            }
+            SUBCASE("3") {
+                check(c, { 0x00, 0x80, 0x01, 0x00 });
+            }
+            SUBCASE("4") {
+                check(d, { 0x00, 0x89, 0x7a, 0x00 });
+            }
         }
-
     }
 }
 
-#if 0
 namespace enum_types
 {
     enum A { A0 = 0, A1 = 200 };
@@ -633,20 +593,25 @@ namespace enum_types
     enum class X : uint8_t { X0 = 102 };
 }
 
-TEST_CASE("enum serialize")
+TEST_CASE_TEMPLATE("enum serialize", ArchPair, YamlKeyedArchiveTest, YamlArchiveTest, BinaryArchiveTest)
 {
     using namespace enum_types;
     using namespace pulmotor;
-    pulmotor::archive_vector_out ar;
+    ArchPair ap;
 
     A a{A1}, a1;
     S s{S0}, s1;
     C c{C::C0}, c1;
     X x{X::X0}, x1;
-    ar | a | s | c | x;
 
-    archive_vector_in i(ar.data);
+    ap.o.begin_array(4);
+    ap.o | a | s | c | x;
+    ap.o.end_array();
+
+    auto i = ap.make_reader();
+    i.begin_array(4);
     i | a1 | s1 | c1 | x1;
+    i.end_array();
 
     CHECK(a1 == a);
     CHECK(s1 == s);
@@ -654,92 +619,7 @@ TEST_CASE("enum serialize")
     CHECK(x1 == x);
 }
 
-namespace ptr_types
-{
-    struct A {
-        int x;
-        explicit A(int xx) : x(xx) {}
-
-        template<class Ar> void save_construct(Ar& ar, unsigned version) {
-            ar | x;
-        }
-        template<class Ar, class F> static void load_construct(Ar& ar, pulmotor::ctor<A, F> const& c, unsigned version) {
-            int xx;
-            ar | xx;
-            c(xx);
-        }
-        bool operator==(A const&) const = default;
-    };
-
-    doctest::String toString(A const& a) { return ("{" + std::to_string(a.x) + "}").c_str(); }
-
-    struct P {
-        std::aligned_storage<sizeof(A)>::type a[1];
-
-        explicit P(int aa) { new (a) A (aa); }
-        ~P() { ((A*)a)->~A(); }
-
-        template<class Ar> void serialize(Ar& ar, unsigned version) {
-            if constexpr(Ar::is_reading)
-                ((A*)a)->~A();
-            ar | pulmotor::place<A>(a);
-        }
-        A& getA() { return *(A*)a; }
-    };
-
-    struct Za {
-        A* px{nullptr};
-        std::allocator<A> xa;
-
-        using at = std::allocator_traits<decltype(xa)>;
-
-        explicit Za(int aa) {
-            px = xa.allocate(1);
-            at::construct(xa, px, aa);
-        }
-        ~Za() {
-            at::destroy(xa, px);
-        }
-
-        template<class Ar> void serialize(Ar& ar, unsigned version) {
-            if constexpr(Ar::is_reading) at::destroy(xa, px);
-            ar | pulmotor::alloc(px, [this]() { return at::allocate(xa, 1); } );
-        }
-    };
-
-    struct Zb {
-        A* px{nullptr};
-        std::allocator<A> xa;
-
-        using at = std::allocator_traits<decltype(xa)>;
-
-        Zb() { }
-        Zb(int aa) { px = xa.allocate(1); at::construct(xa, px, aa); }
-        ~Zb() { at::destroy(xa, px); }
-
-        template<class Ar> void serialize(Ar& ar, unsigned version) {
-            ar | pulmotor::alloc(px, [this]() { return at::allocate(xa, 1); }, [this](A* p) { at::destroy(xa, p); } );
-        }
-    };
-
-    struct X
-    {
-        int x;
-        template<class Ar> void serialize(Ar& ar) { ar | x; }
-        bool operator==(X const&) const = default;
-    };
-    doctest::String toString(X const& x) { return ("{" + std::to_string(x.x) + "}").c_str(); }
-
-    struct Y
-    {
-        X* px {nullptr};
-
-        ~Y() { delete px; }
-        void init(int x) { px = new X{x}; }
-        template<class Ar> void serialize(Ar& ar) { ar | px; }
-    };
-}
-
+#if 0
 TEST_CASE("ptr serialize")
 {
     using namespace ptr_types;
@@ -1133,153 +1013,6 @@ TEST_CASE("version checks")
     }
 }
 
-#include <pulmotor/std/vector.hpp>
-TEST_CASE("vector")
-{
-    using namespace ptr_types;
-    using namespace pulmotor;
-
-    archive_vector_out ar;
-
-    SUBCASE("empty")
-    {
-        std::vector<A> v;
-        ar | v;
-
-        std::vector<A> x;
-        archive_vector_in i(ar.data);
-        i | x;
-        CHECK(x.empty());
-    }
-
-    SUBCASE("int")
-    {
-        std::vector<int> v{10, 20, 30, 40};
-        ar | v;
-
-        archive_vector_in i(ar.data);
-        std::vector<int> x;
-        i | x;
-
-        CHECK(x.size() == v.size());
-        CHECK(x == v);
-    }
-
-    SUBCASE("int ptr")
-    {
-        std::vector<int*> v{new int(10), new int(20)};
-        ar | v;
-
-        archive_vector_in i(ar.data);
-        std::vector<int*> x;
-        i | x;
-
-        CHECK(x != v);
-        CHECK(v.size() == x.size());
-        CHECK(v.size() == x.size());
-        for(auto z : v) delete z;
-        for(auto z : x) delete z;
-    }
-
-    SUBCASE("struct")
-    {
-        std::vector<X> v{X{10}, X{20}, X{30}, X{40}};
-        ar | v;
-
-        archive_vector_in i(ar.data);
-        std::vector<X> x;
-        i | x;
-
-        CHECK(x.size() == v.size());
-        CHECK(x == v);
-    }
-
-    SUBCASE("struct ctor")
-    {
-        std::vector<A> v{A{10}, A{20}, A{30}, A{40}};
-        ar | v;
-
-        archive_vector_in i(ar.data);
-        std::vector<A> x;
-        i | x;
-
-        CHECK(x.size() == v.size());
-        CHECK(x == v);
-    }
-
-    SUBCASE("struct ptr ctor")
-    {
-        std::vector<A*> v{new A{15}, new A{25}};
-        ar | v;
-
-        archive_vector_in i(ar.data);
-        std::vector<A*> x;
-        i | x;
-
-        CHECK(x.size() == v.size());
-        CHECK((std::equal(x.begin(), x.end(), v.begin(), v.end(), [](auto a, auto b) { return *a == *b; })) == true);
-        for(auto z : v) delete z;
-        for(auto z : x) delete z;
-    }
-}
-
-#include <pulmotor/std/string.hpp>
-static pulmotor::romu3 r3;
-TEST_CASE("string")
-{
-    using namespace pulmotor;
-
-    archive_vector_out ar;
-
-    SUBCASE("empty")
-    {
-        std::string s;
-        ar | s | s | s;
-
-        std::string x, y("hog"), z(128, 'c');
-        archive_vector_in i(ar.data);
-        i | x | y | z;
-        CHECK(x.empty());
-        CHECK(y.empty());
-        CHECK(z.empty());
-    }
-
-    SUBCASE("content")
-    {
-        std::string ss("abcd"), sl("1234567890qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM");
-        ar | ss | sl;
-
-        std::string xs, xl;
-        archive_vector_in i(ar.data);
-        i | xs | xl;
-
-        CHECK(xs == ss);
-        CHECK(xl == sl);
-    }
-
-    SUBCASE("various lengths")
-    {
-        constexpr size_t N=100;
-        std::string sa[N], xa[N];
-        r3.reset();
-        for (size_t i=0; i<N; ++i)
-            for(size_t q=0; q<i; ++q)
-                sa[i] += '0' + r3.range(128-38);
-
-        for (size_t i=0;i<1U; ++i)
-        {
-            ar.data.clear();
-            ar | sa;
-
-            archive_vector_in in(ar.data);
-            in | xa;
-
-            CHECK((std::equal(sa, sa + N, xa, xa + N, [](auto a, auto b) { return a == b; })) == true);
-
-            std::shuffle(sa, sa + N, r3);
-        }
-    }
-}
 
 #include <pulmotor/std/map.hpp>
 TEST_CASE("map")

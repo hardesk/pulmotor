@@ -42,7 +42,9 @@ int get_pagesize()
 #define PULMOTOR_BN1(x) char const* short_type_name<x>::name = #x;
 
 PULMOTOR_BN1(char)
+PULMOTOR_BN1(bool)
 PULMOTOR_BN1(unsigned char)
+PULMOTOR_BN1(signed char)
 PULMOTOR_BN1(short)
 PULMOTOR_BN1(unsigned short)
 PULMOTOR_BN1(int)
@@ -387,9 +389,15 @@ std::string ssprintf(char const* msg, ...)
 {
     va_list vl;
     va_start(vl, msg);
-    char buf[512];
-    snprintf(buf, sizeof buf, msg, vl);
+    std::string s = ssprintf(msg, vl);
     va_end(vl);
+    return s;
+}
+
+std::string ssprintf(char const* msg, va_list vl)
+{
+    char buf[512];
+    vsnprintf(buf, sizeof buf, msg, vl);
     return buf;
 }
 
